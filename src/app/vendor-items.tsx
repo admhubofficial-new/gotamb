@@ -1,5 +1,5 @@
-import { Stack, router } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { router } from 'expo-router';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -9,7 +9,9 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { BottomNav, BrandMark, StatusChip, palette } from '@/components/gotamb-ui';
 import { supabase } from '../../lib/supabase';
 
 type Item = {
@@ -53,6 +55,7 @@ function formatNumber(value: number) {
 }
 
 export default function VendorItems() {
+  const insets = useSafeAreaInsets();
   const [vendorId, setVendorId] = useState('');
   const [items, setItems] = useState<Item[]>([]);
   const [form, setForm] = useState<FormState>(emptyForm);
@@ -62,6 +65,9 @@ export default function VendorItems() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'error' | 'success'>('error');
+  const [showForm, setShowForm] = useState(false);
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('Semua');
 
   function showMessage(text: string, type: 'error' | 'success' = 'error') {
     setMessageType(type);
@@ -114,6 +120,23 @@ export default function VendorItems() {
     loadItems();
   }, [loadItems]);
 
+  const categories = useMemo(() => {
+    const unique = Array.from(new Set(items.map((item) => item.kategori).filter(Boolean)));
+    return ['Semua', ...unique];
+  }, [items]);
+
+  const filteredItems = useMemo(() => {
+    const cleanQuery = query.trim().toLowerCase();
+    return items.filter((item) => {
+      const matchesCategory = category === 'Semua' || item.kategori === category;
+      const matchesQuery = !cleanQuery || item.nama_item.toLowerCase().includes(cleanQuery) || item.kategori.toLowerCase().includes(cleanQuery);
+      return matchesCategory && matchesQuery;
+    });
+  }, [category, items, query]);
+
+  const lowStockCount = items.filter((item) => item.stok <= 10).length;
+  const totalStock = items.reduce((sum, item) => sum + Number(item.stok || 0), 0);
+
   function updateForm(field: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
   }
@@ -121,7 +144,17 @@ export default function VendorItems() {
   function resetForm() {
     setForm(emptyForm);
     setEditingId(null);
+    setDeleteId(null);
     setMessage('');
+    setShowForm(false);
+  }
+
+  function startAdd() {
+    setForm(emptyForm);
+    setEditingId(null);
+    setDeleteId(null);
+    setMessage('');
+    setShowForm(true);
   }
 
   function startEdit(item: Item) {
@@ -136,8 +169,9 @@ export default function VendorItems() {
       lokasiLat: item.lokasi_lat === null ? '' : String(item.lokasi_lat),
       lokasiLng: item.lokasi_lng === null ? '' : String(item.lokasi_lng),
     });
-    setMessage('Mode ubah aktif. Form di atas berisi data item yang dipilih.');
+    setMessage('Mode ubah aktif. Perbarui data lalu simpan perubahan.');
     setMessageType('success');
+    setShowForm(true);
   }
 
   async function saveItem() {
@@ -207,6 +241,7 @@ export default function VendorItems() {
     const successText = editingId ? 'Item berhasil diperbarui.' : 'Item berhasil ditambahkan.';
     setForm(emptyForm);
     setEditingId(null);
+    setShowForm(false);
     await loadItems();
     showMessage(successText, 'success');
   }
@@ -217,11 +252,7 @@ export default function VendorItems() {
     setSaving(true);
     setMessage('');
 
-    const { error } = await supabase
-      .from('items')
-      .delete()
-      .eq('id', itemId)
-      .eq('vendor_id', vendorId);
+    const { error } = await supabase.from('items').delete().eq('id', itemId).eq('vendor_id', vendorId);
 
     setSaving(false);
     setDeleteId(null);
@@ -236,167 +267,418 @@ export default function VendorItems() {
     showMessage('Item berhasil dihapus.', 'success');
   }
 
+  function openVendorSection(section: string) {
+    router.push(`/explore?role=vendor&section=${section}`);
+  }
+
   return (
-    <ScrollView
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardShouldPersistTaps="handled"
-      contentContainerStyle={styles.container}>
-      <Stack.Screen options={{ headerShown: true, title: 'Kelola Item' }} />
-
-      <View style={styles.formCard}>
-        <Text selectable style={styles.title}>{editingId ? 'Ubah item' : 'Tambah item baru'}</Text>
-        <Text selectable style={styles.helper}>Kolom bertanda wajib harus diisi. Lokasi boleh dikosongkan untuk sekarang.</Text>
-
-        <Text selectable style={styles.label}>Nama item *</Text>
-        <TextInput accessibilityLabel="Nama item" style={styles.input} placeholder="Contoh: Pasir Beton" value={form.namaItem} onChangeText={(value) => updateForm('namaItem', value)} />
-
-        <Text selectable style={styles.label}>Kategori *</Text>
-        <TextInput accessibilityLabel="Kategori" style={styles.input} placeholder="Contoh: Pasir" value={form.kategori} onChangeText={(value) => updateForm('kategori', value)} />
-
-        <View style={styles.twoColumns}>
-          <View style={styles.column}>
-            <Text selectable style={styles.label}>Harga *</Text>
-            <TextInput accessibilityLabel="Harga" style={styles.input} placeholder="150000" value={form.harga} onChangeText={(value) => updateForm('harga', value)} keyboardType="decimal-pad" />
-          </View>
-          <View style={styles.column}>
-            <Text selectable style={styles.label}>Satuan *</Text>
-            <TextInput accessibilityLabel="Satuan" style={styles.input} placeholder="m³ / ton / truk" value={form.satuan} onChangeText={(value) => updateForm('satuan', value)} />
-          </View>
+    <View style={styles.screen}>
+      <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[
+          styles.container,
+          { paddingTop: Math.max(insets.top + 14, 26), paddingBottom: 32 },
+        ]}>
+        <View style={styles.topBar}>
+          <Pressable accessibilityRole="button" onPress={() => router.back()} style={styles.backButton}>
+            <Text style={styles.backSymbol}>‹</Text>
+          </Pressable>
+          <BrandMark compact />
+          <Pressable accessibilityRole="button" onPress={() => router.replace('/vendor-home')} style={styles.homeButton}>
+            <Text style={styles.homeButtonText}>Beranda</Text>
+          </Pressable>
         </View>
 
-        <Text selectable style={styles.label}>Stok *</Text>
-        <TextInput accessibilityLabel="Stok" style={styles.input} placeholder="100" value={form.stok} onChangeText={(value) => updateForm('stok', value)} keyboardType="decimal-pad" />
-
-        <View style={styles.twoColumns}>
-          <View style={styles.column}>
-            <Text selectable style={styles.label}>Latitude</Text>
-            <TextInput accessibilityLabel="Latitude" style={styles.input} placeholder="-6.200000" value={form.lokasiLat} onChangeText={(value) => updateForm('lokasiLat', value)} keyboardType="numbers-and-punctuation" />
+        <View style={styles.headingRow}>
+          <View style={styles.headingCopy}>
+            <Text style={styles.eyebrow}>KATALOG VENDOR</Text>
+            <Text selectable style={styles.title}>Kelola material</Text>
+            <Text selectable style={styles.subtitle}>Atur produk, harga, stok, satuan, dan titik material yang tampil di goTamb.</Text>
           </View>
-          <View style={styles.column}>
-            <Text selectable style={styles.label}>Longitude</Text>
-            <TextInput accessibilityLabel="Longitude" style={styles.input} placeholder="106.816666" value={form.lokasiLng} onChangeText={(value) => updateForm('lokasiLng', value)} keyboardType="numbers-and-punctuation" />
+          <Pressable accessibilityRole="button" onPress={startAdd} style={({ pressed }) => [styles.addButton, pressed && styles.pressed]}>
+            <Text style={styles.addButtonPlus}>＋</Text>
+            <Text style={styles.addButtonText}>Tambah</Text>
+          </Pressable>
+        </View>
+
+        <View style={styles.metricsRow}>
+          <View style={styles.metricCard}>
+            <Text style={styles.metricLabel}>Item aktif</Text>
+            <Text selectable style={styles.metricValue}>{items.length}</Text>
+            <Text style={styles.metricMeta}>material tersimpan</Text>
+          </View>
+          <View style={[styles.metricCard, styles.metricWarn]}>
+            <Text style={styles.metricLabel}>Stok menipis</Text>
+            <Text selectable style={[styles.metricValue, { color: palette.brandDark }]}>{lowStockCount}</Text>
+            <Text style={styles.metricMeta}>stok ≤ 10</Text>
+          </View>
+          <View style={[styles.metricCard, styles.metricGreen]}>
+            <Text style={styles.metricLabel}>Total stok</Text>
+            <Text selectable style={[styles.metricValue, { color: palette.green }]}>{formatNumber(totalStock)}</Text>
+            <Text style={styles.metricMeta}>lintas satuan</Text>
           </View>
         </View>
 
         {message ? (
-          <Text selectable accessibilityRole="alert" style={[styles.message, messageType === 'success' ? styles.successMessage : styles.errorMessage]}>
+          <Text
+            selectable
+            accessibilityRole="alert"
+            style={[styles.message, messageType === 'success' ? styles.successMessage : styles.errorMessage]}>
             {message}
           </Text>
         ) : null}
 
-        <View style={styles.actionRow}>
-          <Pressable accessibilityRole="button" style={({ pressed }) => [styles.primaryButton, pressed && styles.buttonPressed]} onPress={saveItem} disabled={saving || loading}>
-            {saving ? <ActivityIndicator color="#fff" /> : <Text style={styles.primaryButtonText}>{editingId ? 'Simpan perubahan' : 'Tambah item'}</Text>}
-          </Pressable>
-          {editingId ? (
-            <Pressable accessibilityRole="button" style={({ pressed }) => [styles.secondaryButton, pressed && styles.buttonPressed]} onPress={resetForm} disabled={saving}>
-              <Text style={styles.secondaryButtonText}>Batal mengubah</Text>
-            </Pressable>
-          ) : null}
-        </View>
-      </View>
-
-      <View style={styles.listHeader}>
-        <View>
-          <Text selectable style={styles.title}>Daftar item</Text>
-          <Text selectable style={styles.helper}>{items.length} item tersimpan</Text>
-        </View>
-        <Pressable accessibilityRole="button" style={styles.refreshButton} onPress={loadItems} disabled={loading || saving}>
-          <Text style={styles.refreshText}>Muat ulang</Text>
-        </Pressable>
-      </View>
-
-      {loading ? (
-        <ActivityIndicator size="large" color="#2563eb" />
-      ) : items.length === 0 ? (
-        <View style={styles.emptyCard}>
-          <Text selectable style={styles.emptyTitle}>Belum ada item</Text>
-          <Text selectable style={styles.helper}>Isi formulir di atas untuk menambahkan item pertama.</Text>
-        </View>
-      ) : (
-        <View style={styles.itemList}>
-          {items.map((item) => (
-            <View key={item.id} style={styles.itemCard}>
-              <View style={styles.itemTopRow}>
-                <View style={styles.itemInfo}>
-                  <Text selectable style={styles.itemName}>{item.nama_item}</Text>
-                  <Text selectable style={styles.category}>{item.kategori}</Text>
-                </View>
-                <Text selectable style={styles.price}>Rp {formatNumber(item.harga)}/{item.satuan}</Text>
+        {showForm ? (
+          <View style={styles.formCard}>
+            <View style={styles.formHeading}>
+              <View style={styles.formHeadingCopy}>
+                <Text selectable style={styles.formTitle}>{editingId ? 'Ubah material' : 'Tambah material baru'}</Text>
+                <Text selectable style={styles.helper}>Isi data utama. Koordinat lokasi boleh dikosongkan sementara.</Text>
               </View>
-              <Text selectable style={styles.stock}>Stok: {formatNumber(item.stok)} {item.satuan}</Text>
-              <Text selectable style={styles.location}>
-                {item.lokasi_lat === null ? 'Lokasi belum diisi' : `Lokasi: ${item.lokasi_lat}, ${item.lokasi_lng}`}
-              </Text>
-
-              {deleteId === item.id ? (
-                <View style={styles.confirmBox}>
-                  <Text selectable style={styles.confirmText}>Hapus item ini? Tindakan ini tidak dapat dibatalkan.</Text>
-                  <View style={styles.actionRow}>
-                    <Pressable accessibilityRole="button" style={styles.dangerButton} onPress={() => deleteItem(item.id)} disabled={saving}>
-                      <Text style={styles.dangerButtonText}>Ya, hapus</Text>
-                    </Pressable>
-                    <Pressable accessibilityRole="button" style={styles.secondaryButton} onPress={() => setDeleteId(null)} disabled={saving}>
-                      <Text style={styles.secondaryButtonText}>Batal</Text>
-                    </Pressable>
-                  </View>
-                </View>
-              ) : (
-                <View style={styles.actionRow}>
-                  <Pressable accessibilityRole="button" style={styles.editButton} onPress={() => startEdit(item)} disabled={saving}>
-                    <Text style={styles.editButtonText}>Ubah</Text>
-                  </Pressable>
-                  <Pressable accessibilityRole="button" style={styles.deleteOutlineButton} onPress={() => setDeleteId(item.id)} disabled={saving}>
-                    <Text style={styles.deleteOutlineText}>Hapus</Text>
-                  </Pressable>
-                </View>
-              )}
+              <Pressable accessibilityRole="button" onPress={resetForm} hitSlop={8}>
+                <Text style={styles.closeText}>Tutup</Text>
+              </Pressable>
             </View>
-          ))}
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Nama material *</Text>
+              <TextInput
+                accessibilityLabel="Nama item"
+                style={styles.input}
+                placeholder="Contoh: Pasir Beton Premium"
+                placeholderTextColor="#9AA2AE"
+                value={form.namaItem}
+                onChangeText={(value) => updateForm('namaItem', value)}
+              />
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Kategori *</Text>
+              <TextInput
+                accessibilityLabel="Kategori"
+                style={styles.input}
+                placeholder="Pasir / Batu Split / Tanah Urug"
+                placeholderTextColor="#9AA2AE"
+                value={form.kategori}
+                onChangeText={(value) => updateForm('kategori', value)}
+              />
+            </View>
+
+            <View style={styles.twoColumns}>
+              <View style={styles.column}>
+                <Text style={styles.label}>Harga *</Text>
+                <TextInput
+                  accessibilityLabel="Harga"
+                  style={styles.input}
+                  placeholder="190000"
+                  placeholderTextColor="#9AA2AE"
+                  value={form.harga}
+                  onChangeText={(value) => updateForm('harga', value)}
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              <View style={styles.column}>
+                <Text style={styles.label}>Satuan *</Text>
+                <TextInput
+                  accessibilityLabel="Satuan"
+                  style={styles.input}
+                  placeholder="m³ / ton / truk"
+                  placeholderTextColor="#9AA2AE"
+                  value={form.satuan}
+                  onChangeText={(value) => updateForm('satuan', value)}
+                />
+              </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text style={styles.label}>Stok *</Text>
+              <TextInput
+                accessibilityLabel="Stok"
+                style={styles.input}
+                placeholder="100"
+                placeholderTextColor="#9AA2AE"
+                value={form.stok}
+                onChangeText={(value) => updateForm('stok', value)}
+                keyboardType="decimal-pad"
+              />
+            </View>
+
+            <View style={styles.locationBox}>
+              <View style={styles.locationHeading}>
+                <View style={styles.locationMark}><Text style={styles.locationMarkText}>⌖</Text></View>
+                <View style={styles.locationHeadingCopy}>
+                  <Text style={styles.locationTitle}>Titik lokasi material</Text>
+                  <Text style={styles.helper}>Digunakan untuk estimasi jarak dan pengiriman.</Text>
+                </View>
+              </View>
+              <View style={styles.twoColumns}>
+                <View style={styles.column}>
+                  <Text style={styles.label}>Latitude</Text>
+                  <TextInput
+                    accessibilityLabel="Latitude"
+                    style={styles.input}
+                    placeholder="-6.200000"
+                    placeholderTextColor="#9AA2AE"
+                    value={form.lokasiLat}
+                    onChangeText={(value) => updateForm('lokasiLat', value)}
+                    keyboardType="numbers-and-punctuation"
+                  />
+                </View>
+                <View style={styles.column}>
+                  <Text style={styles.label}>Longitude</Text>
+                  <TextInput
+                    accessibilityLabel="Longitude"
+                    style={styles.input}
+                    placeholder="106.816666"
+                    placeholderTextColor="#9AA2AE"
+                    value={form.lokasiLng}
+                    onChangeText={(value) => updateForm('lokasiLng', value)}
+                    keyboardType="numbers-and-punctuation"
+                  />
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.actionRow}>
+              <Pressable
+                accessibilityRole="button"
+                style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed, (saving || loading) && styles.disabled]}
+                onPress={saveItem}
+                disabled={saving || loading}>
+                {saving ? <ActivityIndicator color="#17202A" /> : <Text style={styles.primaryButtonText}>{editingId ? 'Simpan perubahan' : 'Tambahkan ke katalog'}</Text>}
+              </Pressable>
+              {editingId ? (
+                <Pressable accessibilityRole="button" style={styles.secondaryButton} onPress={resetForm} disabled={saving}>
+                  <Text style={styles.secondaryButtonText}>Batal</Text>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        ) : null}
+
+        <View style={styles.toolsCard}>
+          <View style={styles.searchWrap}>
+            <Text style={styles.searchIcon}>⌕</Text>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Cari nama atau kategori material"
+              placeholderTextColor="#9AA2AE"
+              value={query}
+              onChangeText={setQuery}
+            />
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+            {categories.map((item) => {
+              const selected = category === item;
+              return (
+                <Pressable key={item} onPress={() => setCategory(item)} style={[styles.filterChip, selected && styles.filterChipActive]}>
+                  <Text style={[styles.filterChipText, selected && styles.filterChipTextActive]}>{item}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </View>
-      )}
-    </ScrollView>
+
+        <View style={styles.listHeading}>
+          <View>
+            <Text selectable style={styles.listTitle}>Daftar material</Text>
+            <Text selectable style={styles.helper}>{filteredItems.length} dari {items.length} item ditampilkan</Text>
+          </View>
+          <Pressable accessibilityRole="button" onPress={loadItems} disabled={loading || saving} style={styles.refreshButton}>
+            <Text style={styles.refreshText}>{loading ? 'Memuat...' : 'Muat ulang'}</Text>
+          </Pressable>
+        </View>
+
+        {loading ? (
+          <View style={styles.loadingCard}>
+            <ActivityIndicator size="large" color={palette.brandDark} />
+            <Text style={styles.helper}>Memuat katalog vendor...</Text>
+          </View>
+        ) : filteredItems.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <View style={styles.emptyIcon}><Text style={styles.emptyIconText}>▦</Text></View>
+            <Text selectable style={styles.emptyTitle}>{items.length === 0 ? 'Belum ada material' : 'Material tidak ditemukan'}</Text>
+            <Text selectable style={styles.emptyText}>{items.length === 0 ? 'Tambahkan material pertama agar dapat tampil di marketplace goTamb.' : 'Coba kata pencarian atau kategori lainnya.'}</Text>
+            {items.length === 0 ? (
+              <Pressable onPress={startAdd} style={styles.emptyButton}><Text style={styles.emptyButtonText}>Tambah material</Text></Pressable>
+            ) : null}
+          </View>
+        ) : (
+          <View style={styles.itemList}>
+            {filteredItems.map((item, index) => {
+              const lowStock = item.stok <= 10;
+              return (
+                <View key={item.id} style={styles.itemCard}>
+                  <View style={styles.itemTopRow}>
+                    <View style={[styles.itemMark, index % 3 === 0 ? styles.itemMarkBrand : index % 3 === 1 ? styles.itemMarkBlue : styles.itemMarkGreen]}>
+                      <Text style={styles.itemMarkText}>{item.nama_item.slice(0, 2).toUpperCase()}</Text>
+                    </View>
+                    <View style={styles.itemInfo}>
+                      <Text selectable style={styles.itemName}>{item.nama_item}</Text>
+                      <Text selectable style={styles.categoryText}>{item.kategori}</Text>
+                    </View>
+                    <StatusChip label={lowStock ? 'Stok menipis' : 'Aktif'} tone={lowStock ? 'brand' : 'green'} />
+                  </View>
+
+                  <View style={styles.itemStats}>
+                    <View style={styles.itemStat}>
+                      <Text style={styles.itemStatLabel}>Harga</Text>
+                      <Text selectable style={styles.itemStatValue}>Rp {formatNumber(item.harga)}</Text>
+                    </View>
+                    <View style={styles.itemStatDivider} />
+                    <View style={styles.itemStat}>
+                      <Text style={styles.itemStatLabel}>Stok</Text>
+                      <Text selectable style={styles.itemStatValue}>{formatNumber(item.stok)} {item.satuan}</Text>
+                    </View>
+                    <View style={styles.itemStatDivider} />
+                    <View style={styles.itemStat}>
+                      <Text style={styles.itemStatLabel}>Lokasi</Text>
+                      <Text selectable numberOfLines={1} style={styles.itemStatValue}>{item.lokasi_lat === null ? 'Belum diisi' : 'Tersimpan'}</Text>
+                    </View>
+                  </View>
+
+                  {deleteId === item.id ? (
+                    <View style={styles.confirmBox}>
+                      <View style={styles.confirmCopy}>
+                        <Text selectable style={styles.confirmTitle}>Hapus {item.nama_item}?</Text>
+                        <Text selectable style={styles.confirmText}>Material akan hilang dari katalog vendor dan tindakan ini tidak dapat dibatalkan.</Text>
+                      </View>
+                      <View style={styles.actionRow}>
+                        <Pressable accessibilityRole="button" style={styles.dangerButton} onPress={() => deleteItem(item.id)} disabled={saving}>
+                          <Text style={styles.dangerButtonText}>Ya, hapus</Text>
+                        </Pressable>
+                        <Pressable accessibilityRole="button" style={styles.secondaryButton} onPress={() => setDeleteId(null)} disabled={saving}>
+                          <Text style={styles.secondaryButtonText}>Batal</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={styles.cardActions}>
+                      <Pressable accessibilityRole="button" style={styles.editButton} onPress={() => startEdit(item)} disabled={saving}>
+                        <Text style={styles.editButtonText}>Ubah material</Text>
+                      </Pressable>
+                      <Pressable accessibilityRole="button" style={styles.deleteButton} onPress={() => setDeleteId(item.id)} disabled={saving}>
+                        <Text style={styles.deleteButtonText}>Hapus</Text>
+                      </Pressable>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
+      </ScrollView>
+
+      <BottomNav
+        activeKey="catalog"
+        items={[
+          { key: 'home', symbol: '⌂', label: 'Beranda', onPress: () => router.replace('/vendor-home') },
+          { key: 'orders', symbol: '≡', label: 'Pesanan', onPress: () => openVendorSection('orders') },
+          { key: 'catalog', symbol: '▦', label: 'Katalog', onPress: () => {} },
+          { key: 'profile', symbol: '○', label: 'Akun', onPress: () => openVendorSection('profile') },
+        ]}
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { backgroundColor: '#f4f7fb', padding: 20, paddingBottom: 48, gap: 20 },
-  formCard: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: 10, borderRadius: 16, backgroundColor: '#fff', padding: 20, boxShadow: '0 8px 30px rgba(15, 23, 42, 0.08)' },
-  title: { color: '#0f172a', fontSize: 22, fontWeight: '700' },
-  helper: { color: '#64748b', fontSize: 13, lineHeight: 19 },
-  label: { color: '#334155', fontSize: 13, fontWeight: '600', paddingTop: 4 },
-  input: { borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 10, backgroundColor: '#fff', paddingHorizontal: 13, paddingVertical: 12, fontSize: 15 },
-  twoColumns: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  column: { flex: 1, minWidth: 180, gap: 6 },
-  message: { borderRadius: 8, padding: 12, fontSize: 14 },
-  errorMessage: { color: '#b91c1c', backgroundColor: '#fef2f2' },
-  successMessage: { color: '#166534', backgroundColor: '#f0fdf4' },
-  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  primaryButton: { flexGrow: 1, alignItems: 'center', borderRadius: 10, backgroundColor: '#2563eb', padding: 13 },
-  primaryButtonText: { color: '#fff', fontSize: 15, fontWeight: '700' },
-  secondaryButton: { alignItems: 'center', borderWidth: 1, borderColor: '#cbd5e1', borderRadius: 10, backgroundColor: '#fff', paddingHorizontal: 16, paddingVertical: 12 },
-  secondaryButtonText: { color: '#334155', fontWeight: '600' },
-  buttonPressed: { opacity: 0.82 },
-  listHeader: { width: '100%', maxWidth: 760, alignSelf: 'center', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 16 },
-  refreshButton: { borderRadius: 9, backgroundColor: '#e0e7ff', paddingHorizontal: 13, paddingVertical: 9 },
-  refreshText: { color: '#3730a3', fontWeight: '600' },
-  emptyCard: { width: '100%', maxWidth: 760, alignSelf: 'center', alignItems: 'center', gap: 6, borderRadius: 14, backgroundColor: '#fff', padding: 28 },
-  emptyTitle: { color: '#334155', fontSize: 17, fontWeight: '700' },
-  itemList: { width: '100%', maxWidth: 760, alignSelf: 'center', gap: 12 },
-  itemCard: { gap: 10, borderWidth: 1, borderColor: '#e2e8f0', borderRadius: 14, backgroundColor: '#fff', padding: 17 },
-  itemTopRow: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 10 },
-  itemInfo: { flex: 1, minWidth: 180, gap: 3 },
-  itemName: { color: '#0f172a', fontSize: 17, fontWeight: '700' },
-  category: { color: '#2563eb', fontSize: 13, fontWeight: '600' },
-  price: { color: '#166534', fontSize: 15, fontWeight: '700', fontVariant: ['tabular-nums'] },
-  stock: { color: '#334155', fontSize: 14, fontVariant: ['tabular-nums'] },
-  location: { color: '#64748b', fontSize: 13 },
-  editButton: { borderRadius: 9, backgroundColor: '#eff6ff', paddingHorizontal: 18, paddingVertical: 10 },
-  editButtonText: { color: '#1d4ed8', fontWeight: '700' },
-  deleteOutlineButton: { borderWidth: 1, borderColor: '#fecaca', borderRadius: 9, paddingHorizontal: 18, paddingVertical: 10 },
-  deleteOutlineText: { color: '#b91c1c', fontWeight: '700' },
-  confirmBox: { gap: 10, borderRadius: 10, backgroundColor: '#fef2f2', padding: 12 },
-  confirmText: { color: '#991b1b', fontSize: 14 },
-  dangerButton: { alignItems: 'center', borderRadius: 10, backgroundColor: '#dc2626', paddingHorizontal: 16, paddingVertical: 12 },
-  dangerButtonText: { color: '#fff', fontWeight: '700' },
+  screen: { flex: 1, backgroundColor: palette.background },
+  container: { paddingHorizontal: 18, gap: 20 },
+  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  backButton: { width: 38, height: 38, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line },
+  backSymbol: { color: palette.ink, fontSize: 29, lineHeight: 31 },
+  homeButton: { minHeight: 38, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, paddingHorizontal: 12 },
+  homeButtonText: { color: palette.ink, fontSize: 10, fontWeight: '900' },
+  headingRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
+  headingCopy: { flex: 1, gap: 5 },
+  eyebrow: { color: palette.brandDark, fontSize: 10, fontWeight: '900', letterSpacing: 0.8 },
+  title: { color: palette.ink, fontSize: 28, lineHeight: 33, fontWeight: '900', letterSpacing: -0.8 },
+  subtitle: { color: palette.muted, fontSize: 12, lineHeight: 18 },
+  addButton: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, borderRadius: 15, backgroundColor: palette.brand, paddingHorizontal: 13, borderCurve: 'continuous' },
+  addButtonPlus: { color: palette.ink, fontSize: 17, fontWeight: '900' },
+  addButtonText: { color: palette.ink, fontSize: 11, fontWeight: '900' },
+  metricsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  metricCard: { flex: 1, minWidth: 100, minHeight: 104, borderRadius: 18, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, padding: 13, gap: 5, borderCurve: 'continuous' },
+  metricWarn: { backgroundColor: palette.brandSoft, borderColor: '#F7DA9B' },
+  metricGreen: { backgroundColor: palette.greenSoft, borderColor: '#C8E9DB' },
+  metricLabel: { color: palette.muted, fontSize: 9, fontWeight: '800' },
+  metricValue: { color: palette.ink, fontSize: 24, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  metricMeta: { color: palette.muted, fontSize: 9 },
+  message: { borderRadius: 14, padding: 12, fontSize: 12, lineHeight: 18 },
+  errorMessage: { color: '#B42318', backgroundColor: palette.redSoft },
+  successMessage: { color: '#116149', backgroundColor: palette.greenSoft },
+  formCard: { gap: 13, borderRadius: 24, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, padding: 18, borderCurve: 'continuous', boxShadow: '0 10px 28px rgba(23, 32, 42, 0.05)' },
+  formHeading: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  formHeadingCopy: { flex: 1, gap: 4 },
+  formTitle: { color: palette.ink, fontSize: 19, fontWeight: '900' },
+  helper: { color: palette.muted, fontSize: 10, lineHeight: 16 },
+  closeText: { color: palette.brandDark, fontSize: 11, fontWeight: '900' },
+  fieldGroup: { gap: 7 },
+  label: { color: '#394554', fontSize: 11, fontWeight: '800' },
+  input: { minHeight: 49, borderWidth: 1, borderColor: '#DCE1E7', borderRadius: 15, backgroundColor: '#FAFBFC', color: palette.ink, paddingHorizontal: 13, fontSize: 14, borderCurve: 'continuous' },
+  twoColumns: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  column: { flex: 1, minWidth: 145, gap: 7 },
+  locationBox: { gap: 12, borderRadius: 18, backgroundColor: '#F7F8FA', borderWidth: 1, borderColor: palette.line, padding: 13 },
+  locationHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  locationMark: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.blueSoft },
+  locationMarkText: { color: palette.blue, fontSize: 18, fontWeight: '900' },
+  locationHeadingCopy: { flex: 1, gap: 2 },
+  locationTitle: { color: palette.ink, fontSize: 12, fontWeight: '900' },
+  actionRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  primaryButton: { flex: 1, minWidth: 180, minHeight: 49, alignItems: 'center', justifyContent: 'center', borderRadius: 15, backgroundColor: palette.brand, paddingHorizontal: 14 },
+  primaryButtonText: { color: palette.ink, fontSize: 12, fontWeight: '900' },
+  secondaryButton: { minHeight: 45, alignItems: 'center', justifyContent: 'center', borderRadius: 14, borderWidth: 1, borderColor: palette.line, backgroundColor: '#FFFFFF', paddingHorizontal: 15 },
+  secondaryButtonText: { color: palette.ink, fontSize: 11, fontWeight: '800' },
+  toolsCard: { gap: 11 },
+  searchWrap: { minHeight: 50, flexDirection: 'row', alignItems: 'center', gap: 9, borderRadius: 16, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, paddingHorizontal: 13 },
+  searchIcon: { color: palette.ink, fontSize: 20, fontWeight: '900' },
+  searchInput: { flex: 1, minHeight: 48, color: palette.ink, fontSize: 13 },
+  chipRow: { gap: 8, paddingRight: 18 },
+  filterChip: { minHeight: 34, justifyContent: 'center', borderRadius: 999, borderWidth: 1, borderColor: palette.line, backgroundColor: '#FFFFFF', paddingHorizontal: 13 },
+  filterChipActive: { borderColor: '#E9BA55', backgroundColor: palette.brandSoft },
+  filterChipText: { color: palette.muted, fontSize: 10, fontWeight: '800' },
+  filterChipTextActive: { color: palette.brandDark },
+  listHeading: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  listTitle: { color: palette.ink, fontSize: 18, fontWeight: '900' },
+  refreshButton: { borderRadius: 12, borderWidth: 1, borderColor: palette.line, backgroundColor: '#FFFFFF', paddingHorizontal: 11, paddingVertical: 8 },
+  refreshText: { color: palette.ink, fontSize: 10, fontWeight: '800' },
+  loadingCard: { minHeight: 160, alignItems: 'center', justifyContent: 'center', gap: 10, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line },
+  emptyCard: { alignItems: 'center', gap: 8, borderRadius: 22, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, padding: 26 },
+  emptyIcon: { width: 50, height: 50, borderRadius: 17, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.brandSoft },
+  emptyIconText: { color: palette.brandDark, fontSize: 21, fontWeight: '900' },
+  emptyTitle: { color: palette.ink, fontSize: 15, fontWeight: '900' },
+  emptyText: { maxWidth: 290, color: palette.muted, fontSize: 11, lineHeight: 17, textAlign: 'center' },
+  emptyButton: { borderRadius: 13, backgroundColor: palette.brand, paddingHorizontal: 14, paddingVertical: 10, marginTop: 4 },
+  emptyButtonText: { color: palette.ink, fontSize: 10, fontWeight: '900' },
+  itemList: { gap: 10 },
+  itemCard: { gap: 13, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, padding: 14, borderCurve: 'continuous' },
+  itemTopRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  itemMark: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+  itemMarkBrand: { backgroundColor: '#F7CD77' },
+  itemMarkBlue: { backgroundColor: '#C9D8FB' },
+  itemMarkGreen: { backgroundColor: '#C6E7D9' },
+  itemMarkText: { color: palette.ink, fontSize: 11, fontWeight: '900' },
+  itemInfo: { flex: 1, gap: 3 },
+  itemName: { color: palette.ink, fontSize: 14, fontWeight: '900' },
+  categoryText: { color: palette.muted, fontSize: 10 },
+  itemStats: { flexDirection: 'row', alignItems: 'stretch', borderRadius: 15, backgroundColor: '#F8F9FA', padding: 10 },
+  itemStat: { flex: 1, gap: 3 },
+  itemStatDivider: { width: 1, backgroundColor: '#E4E7EB', marginHorizontal: 8 },
+  itemStatLabel: { color: palette.muted, fontSize: 8, fontWeight: '800' },
+  itemStatValue: { color: palette.ink, fontSize: 10, fontWeight: '900' },
+  cardActions: { flexDirection: 'row', gap: 8 },
+  editButton: { flex: 1, minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: palette.ink },
+  editButtonText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
+  deleteButton: { minHeight: 40, alignItems: 'center', justifyContent: 'center', borderRadius: 13, borderWidth: 1, borderColor: '#F0C8C8', backgroundColor: palette.redSoft, paddingHorizontal: 15 },
+  deleteButtonText: { color: palette.red, fontSize: 10, fontWeight: '900' },
+  confirmBox: { gap: 12, borderRadius: 16, backgroundColor: palette.redSoft, borderWidth: 1, borderColor: '#F1CCCC', padding: 12 },
+  confirmCopy: { gap: 3 },
+  confirmTitle: { color: '#9C1C1C', fontSize: 12, fontWeight: '900' },
+  confirmText: { color: '#9C4242', fontSize: 10, lineHeight: 16 },
+  dangerButton: { flex: 1, minHeight: 43, alignItems: 'center', justifyContent: 'center', borderRadius: 13, backgroundColor: palette.red, paddingHorizontal: 14 },
+  dangerButtonText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
+  pressed: { opacity: 0.77 },
+  disabled: { opacity: 0.5 },
 });
