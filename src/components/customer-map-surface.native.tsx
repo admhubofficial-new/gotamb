@@ -158,7 +158,7 @@ export function CustomerMapSurface({
         pitchEnabled={false}
         showsCompass={false}
         showsBuildings
-        showsPointsOfInterest={false}
+        showsPointsOfInterests={false}
         mapPadding={{ top: 150, right: 0, bottom: 180, left: 0 }}>
         {located.map(({ vendor, coordinate }) => {
           const selected = vendor.id === selectedVendorId;
