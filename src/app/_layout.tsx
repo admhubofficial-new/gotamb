@@ -9,6 +9,7 @@ export default function RootLayout() {
       <Stack.Screen name="login" />
       <Stack.Screen name="register" />
       <Stack.Screen name="vendor-home" />
+      <Stack.Screen name="vendor-items" />
       <Stack.Screen name="customer-home" />
       <Stack.Screen name="driver-home" />
       <Stack.Screen name="test-supabase" />
