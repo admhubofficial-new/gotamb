@@ -12,6 +12,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import {
+  DeliveryLocationPicker,
+  type DeliveryCoordinate,
+} from '@/components/delivery-location-picker';
 import { BrandMark, StatusChip, palette } from '@/components/gotamb-ui';
 import { supabase } from '../../lib/supabase';
 
@@ -25,6 +29,7 @@ type Material = {
   unit: string;
   stock: number;
   symbol: string;
+  vendorCoordinate: DeliveryCoordinate | null;
 };
 
 type ItemRow = {
@@ -40,6 +45,8 @@ type ItemRow = {
 type VendorRow = {
   id: string;
   nama_perusahaan: string;
+  lokasi_lat: number | null;
+  lokasi_lng: number | null;
 };
 
 type Vehicle = {
@@ -47,14 +54,37 @@ type Vehicle = {
   name: string;
   capacity: string;
   description: string;
-  price: number;
+  basePrice: number;
+  perKm: number;
   recommended?: boolean;
 };
 
 const vehicles: Vehicle[] = [
-  { id: 'engkel', name: 'Dump Truck Engkel', capacity: '± 6 m³', description: 'Cocok untuk akses jalan kecil dan pesanan ringan.', price: 220000 },
-  { id: 'double', name: 'Dump Truck Double', capacity: '± 8 m³', description: 'Pilihan seimbang untuk proyek rumah dan bangunan.', price: 280000, recommended: true },
-  { id: 'tronton', name: 'Tronton / 20 Ton', capacity: '± 20 ton', description: 'Untuk volume besar dan akses proyek yang memadai.', price: 520000 },
+  {
+    id: 'engkel',
+    name: 'Dump Truck Engkel',
+    capacity: '± 6 m³',
+    description: 'Cocok untuk akses jalan kecil dan pesanan ringan.',
+    basePrice: 120000,
+    perKm: 8000,
+  },
+  {
+    id: 'double',
+    name: 'Dump Truck Double',
+    capacity: '± 8 m³',
+    description: 'Pilihan seimbang untuk proyek rumah dan bangunan.',
+    basePrice: 160000,
+    perKm: 10000,
+    recommended: true,
+  },
+  {
+    id: 'tronton',
+    name: 'Tronton / 20 Ton',
+    capacity: '± 20 ton',
+    description: 'Untuk volume besar dan akses proyek yang memadai.',
+    basePrice: 280000,
+    perKm: 14000,
+  },
 ];
 
 function rupiah(value: number) {
@@ -68,6 +98,19 @@ function makeOrderCode() {
   const day = String(now.getDate()).padStart(2, '0');
   const suffix = Math.floor(1000 + Math.random() * 9000);
   return `GT-${year}${month}${day}-${suffix}`;
+}
+
+function distanceKm(a: DeliveryCoordinate, b: DeliveryCoordinate) {
+  const toRad = (value: number) => (value * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRad(b.latitude - a.latitude);
+  const dLng = toRad(b.longitude - a.longitude);
+  const lat1 = toRad(a.latitude);
+  const lat2 = toRad(b.latitude);
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
 }
 
 export default function CustomerOrder() {
@@ -84,6 +127,7 @@ export default function CustomerOrder() {
   const [phone, setPhone] = useState('');
   const [address, setAddress] = useState('');
   const [notes, setNotes] = useState('');
+  const [projectCoordinate, setProjectCoordinate] = useState<DeliveryCoordinate | null>(null);
   const [vehicleId, setVehicleId] = useState('double');
   const [creating, setCreating] = useState(false);
   const [createdOrder, setCreatedOrder] = useState('');
@@ -118,7 +162,7 @@ export default function CustomerOrder() {
     const vendorIds = Array.from(new Set(itemRows.map((item) => item.vendor_id)));
     const { data: vendorData, error: vendorError } = await supabase
       .from('vendors')
-      .select('id, nama_perusahaan')
+      .select('id, nama_perusahaan, lokasi_lat, lokasi_lng')
       .in('id', vendorIds);
 
     if (vendorError) {
@@ -128,22 +172,29 @@ export default function CustomerOrder() {
     }
 
     const vendors = (vendorData ?? []) as VendorRow[];
-    const vendorName = new Map(vendors.map((vendor) => [vendor.id, vendor.nama_perusahaan]));
-    const nextMaterials = itemRows.map<Material>((item) => ({
-      id: item.id,
-      vendorId: item.vendor_id,
-      name: item.nama_item,
-      vendor: vendorName.get(item.vendor_id) ?? 'Vendor goTamb',
-      category: item.kategori,
-      price: Number(item.harga),
-      unit: item.satuan,
-      stock: Number(item.stok),
-      symbol: item.kategori.slice(0, 2).toUpperCase(),
-    }));
+    const vendorMap = new Map(vendors.map((vendor) => [vendor.id, vendor]));
+    const nextMaterials = itemRows.map<Material>((item) => {
+      const vendor = vendorMap.get(item.vendor_id);
+      return {
+        id: item.id,
+        vendorId: item.vendor_id,
+        name: item.nama_item,
+        vendor: vendor?.nama_perusahaan ?? 'Vendor goTamb',
+        category: item.kategori,
+        price: Number(item.harga),
+        unit: item.satuan,
+        stock: Number(item.stok),
+        symbol: item.kategori.slice(0, 2).toUpperCase(),
+        vendorCoordinate:
+          vendor?.lokasi_lat !== null && vendor?.lokasi_lng !== null && vendor?.lokasi_lat !== undefined && vendor?.lokasi_lng !== undefined
+            ? { latitude: vendor.lokasi_lat, longitude: vendor.lokasi_lng }
+            : null,
+      };
+    });
 
     setMaterials(nextMaterials);
     setMaterialId((current) => current || nextMaterials[0].id);
-    setQuantity(nextMaterials[0].unit.toLowerCase().includes('truk') ? '1' : '1');
+    setQuantity('1');
     setLoading(false);
   }, [params.item, params.vendor]);
 
@@ -155,15 +206,30 @@ export default function CustomerOrder() {
   const vehicle = vehicles.find((item) => item.id === vehicleId) ?? vehicles[1];
   const parsedQuantity = Math.max(Number(quantity.replace(',', '.')) || 0, 0);
   const materialSubtotal = material ? material.price * parsedQuantity : 0;
+  const directDistance =
+    material?.vendorCoordinate && projectCoordinate
+      ? distanceKm(material.vendorCoordinate, projectCoordinate)
+      : null;
+  const shippingCost = Math.round(
+    vehicle.basePrice + (directDistance ?? 0) * vehicle.perKm,
+  );
   const serviceFee = Math.round(materialSubtotal * 0.015);
-  const total = materialSubtotal + vehicle.price + serviceFee;
+  const total = materialSubtotal + shippingCost + serviceFee;
 
   const canContinue = useMemo(() => {
     if (step === 1) return Boolean(material && parsedQuantity > 0 && parsedQuantity <= material.stock);
-    if (step === 2) return Boolean(projectName.trim() && receiverName.trim() && phone.trim() && address.trim());
+    if (step === 2) {
+      return Boolean(
+        projectName.trim() &&
+          receiverName.trim() &&
+          phone.trim() &&
+          address.trim() &&
+          projectCoordinate,
+      );
+    }
     if (step === 3) return Boolean(vehicleId);
     return true;
-  }, [address, material, parsedQuantity, phone, projectName, receiverName, step, vehicleId]);
+  }, [address, material, parsedQuantity, phone, projectCoordinate, projectName, receiverName, step, vehicleId]);
 
   function chooseMaterial(id: string) {
     const next = materials.find((item) => item.id === id);
@@ -181,7 +247,7 @@ export default function CustomerOrder() {
   }
 
   async function createOrder() {
-    if (!material || creating) return;
+    if (!material || !projectCoordinate || creating) return;
     setCreating(true);
 
     const { data: authData, error: authError } = await supabase.auth.getUser();
@@ -203,10 +269,13 @@ export default function CustomerOrder() {
       receiver_name: receiverName.trim(),
       receiver_phone: phone.trim(),
       delivery_address: address.trim(),
+      delivery_lat: projectCoordinate.latitude,
+      delivery_lng: projectCoordinate.longitude,
+      distance_km: directDistance ? Number(directDistance.toFixed(2)) : null,
       notes: notes.trim() || null,
       vehicle_type: vehicle.name,
       vehicle_capacity: vehicle.capacity,
-      shipping_cost: vehicle.price,
+      shipping_cost: shippingCost,
       service_fee: serviceFee,
     });
 
@@ -249,11 +318,13 @@ export default function CustomerOrder() {
           <StatusChip label="PESANAN DIBUAT" tone="green" />
           <Text style={styles.successTitle}>Pesanan masuk ke goTamb.</Text>
           <Text style={styles.successBody}>Vendor dapat melihat pesanan ini dari akun mitra. Nomor pesanan Anda:</Text>
-          <Text style={styles.orderCode}>{createdOrder}</Text>
+          <Text selectable style={styles.orderCode}>{createdOrder}</Text>
           <View style={styles.summaryCard}>
             <SummaryRow label="Material" value={`${material.name} · ${quantity} ${material.unit}`} />
             <SummaryRow label="Vendor" value={material.vendor} />
+            <SummaryRow label="Jarak" value={directDistance ? `± ${directDistance.toFixed(1)} km` : 'Belum tersedia'} />
             <SummaryRow label="Armada" value={vehicle.name} />
+            <SummaryRow label="Ongkir" value={rupiah(shippingCost)} />
             <SummaryRow label="Total" value={rupiah(total)} strong />
           </View>
           <Pressable onPress={() => router.replace(`/customer-orders?created=${createdOrder}`)} style={styles.primaryButton}>
@@ -267,18 +338,20 @@ export default function CustomerOrder() {
     );
   }
 
-  const title = step === 1 ? 'Pilih material' : step === 2 ? 'Alamat pengiriman' : step === 3 ? 'Pilih armada' : 'Ringkasan pesanan';
+  const title = step === 1 ? 'Pilih material' : step === 2 ? 'Titik pengiriman' : step === 3 ? 'Pilih armada' : 'Ringkasan pesanan';
   const subtitle = step === 1
     ? 'Material berasal langsung dari vendor yang tampil di marketplace.'
     : step === 2
-      ? 'Lengkapi penerima dan alamat proyek.'
+      ? 'Isi alamat lalu tentukan titik proyek tepat di peta.'
       : step === 3
-        ? 'Pilih jenis armada sesuai volume dan akses lokasi.'
+        ? 'Ongkir dihitung otomatis dari jarak vendor ke titik proyek.'
         : 'Periksa kembali sebelum mengirim pesanan ke vendor.';
 
   return (
     <View style={styles.screen}>
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.container, { paddingTop: Math.max(insets.top + 14, 26), paddingBottom: 124 }]}>
+      <ScrollView
+        keyboardShouldPersistTaps="handled"
+        contentContainerStyle={[styles.container, { paddingTop: Math.max(insets.top + 14, 26), paddingBottom: 124 }]}>
         <View style={styles.topBar}>
           <Pressable onPress={previousStep} style={styles.backButton}><Text style={styles.backSymbol}>‹</Text></Pressable>
           <BrandMark compact />
@@ -334,28 +407,39 @@ export default function CustomerOrder() {
         ) : null}
 
         {step === 2 ? (
-          <View style={styles.formCard}>
-            <Field label="Nama proyek" value={projectName} onChangeText={setProjectName} placeholder="Contoh: Proyek Rumah Sumedang" />
-            <Field label="Nama penerima" value={receiverName} onChangeText={setReceiverName} placeholder="Nama penerima di lokasi" />
-            <Field label="Nomor HP" value={phone} onChangeText={setPhone} placeholder="08xxxxxxxxxx" keyboardType="phone-pad" />
-            <Field label="Alamat lengkap" value={address} onChangeText={setAddress} placeholder="Jalan, desa/kecamatan, kabupaten" multiline />
-            <Field label="Catatan untuk driver" value={notes} onChangeText={setNotes} placeholder="Patokan, akses jalan, waktu penerimaan, dll." multiline optional />
-            <View style={styles.mapNotice}>
-              <Text style={styles.mapNoticeIcon}>⌖</Text>
-              <View style={styles.mapNoticeCopy}>
-                <Text style={styles.mapNoticeTitle}>Titik proyek</Text>
-                <Text style={styles.mapNoticeText}>Alamat disimpan pada pesanan. Penentuan pin proyek presisi akan menjadi langkah berikutnya.</Text>
-              </View>
+          <View style={styles.section}>
+            <View style={styles.formCard}>
+              <Field label="Nama proyek" value={projectName} onChangeText={setProjectName} placeholder="Contoh: Proyek Rumah Sumedang" />
+              <Field label="Nama penerima" value={receiverName} onChangeText={setReceiverName} placeholder="Nama penerima di lokasi" />
+              <Field label="Nomor HP" value={phone} onChangeText={setPhone} placeholder="08xxxxxxxxxx" keyboardType="phone-pad" />
+              <Field label="Alamat lengkap" value={address} onChangeText={setAddress} placeholder="Jalan, desa/kecamatan, kabupaten" multiline />
+              <Field label="Catatan untuk driver" value={notes} onChangeText={setNotes} placeholder="Patokan, akses jalan, waktu penerimaan, dll." multiline optional />
+            </View>
+
+            <DeliveryLocationPicker
+              vendorCoordinate={material.vendorCoordinate}
+              value={projectCoordinate}
+              onChange={setProjectCoordinate}
+            />
+
+            <View style={styles.distanceCard}>
+              <Text style={styles.distanceLabel}>Estimasi jarak vendor → proyek</Text>
+              <Text style={styles.distanceValue}>{directDistance ? `${directDistance.toFixed(1)} km` : 'Pilih titik proyek'}</Text>
+              <Text style={styles.distanceHint}>Jarak saat ini dihitung dari koordinat geografis. Estimasi rute jalan dapat ditambahkan dengan Directions API pada tahap berikutnya.</Text>
             </View>
           </View>
         ) : null}
 
         {step === 3 ? (
           <View style={styles.section}>
-            <View style={styles.infoBanner}><Text style={styles.infoSymbol}>i</Text><Text style={styles.infoText}>Ongkir di bawah masih estimasi berdasarkan jenis armada. Perhitungan jarak vendor → proyek akan disambungkan ke titik alamat.</Text></View>
+            <View style={styles.infoBanner}>
+              <Text style={styles.infoSymbol}>i</Text>
+              <Text style={styles.infoText}>Ongkir = tarif dasar armada + tarif per km berdasarkan jarak titik vendor dan proyek.</Text>
+            </View>
             <View style={styles.vehicleList}>
               {vehicles.map((item) => {
                 const selected = vehicleId === item.id;
+                const estimate = Math.round(item.basePrice + (directDistance ?? 0) * item.perKm);
                 return (
                   <Pressable key={item.id} onPress={() => setVehicleId(item.id)} style={({ pressed }) => [styles.vehicleCard, selected && styles.vehicleCardSelected, pressed && styles.pressed]}>
                     <View style={styles.vehicleIcon}><Text style={styles.vehicleIconText}>TR</Text></View>
@@ -363,7 +447,8 @@ export default function CustomerOrder() {
                       <View style={styles.vehicleTitleRow}><Text style={styles.vehicleName}>{item.name}</Text>{item.recommended ? <StatusChip label="Rekomendasi" tone="brand" /> : null}</View>
                       <Text style={styles.vehicleCapacity}>{item.capacity}</Text>
                       <Text style={styles.vehicleDescription}>{item.description}</Text>
-                      <Text style={styles.vehiclePrice}>{rupiah(item.price)} estimasi ongkir</Text>
+                      <Text style={styles.vehiclePrice}>{rupiah(estimate)} estimasi ongkir</Text>
+                      <Text style={styles.vehicleFormula}>Dasar {rupiah(item.basePrice)} + {rupiah(item.perKm)}/km</Text>
                     </View>
                     <View style={[styles.radio, selected && styles.radioSelected]} />
                   </Pressable>
@@ -384,12 +469,14 @@ export default function CustomerOrder() {
               <SummaryRow label="Proyek" value={projectName} />
               <SummaryRow label="Penerima" value={`${receiverName} · ${phone}`} />
               <SummaryRow label="Alamat" value={address} />
+              <SummaryRow label="Koordinat" value={projectCoordinate ? `${projectCoordinate.latitude.toFixed(5)}, ${projectCoordinate.longitude.toFixed(5)}` : '-'} />
+              <SummaryRow label="Jarak" value={directDistance ? `± ${directDistance.toFixed(1)} km` : '-'} />
               <SummaryRow label="Armada" value={`${vehicle.name} · ${vehicle.capacity}`} />
             </View>
             <View style={styles.summaryCard}>
               <Text style={styles.summaryTitle}>Rincian harga</Text>
               <SummaryRow label={`Material (${quantity} ${material.unit})`} value={rupiah(materialSubtotal)} />
-              <SummaryRow label="Estimasi pengiriman" value={rupiah(vehicle.price)} />
+              <SummaryRow label="Estimasi pengiriman" value={rupiah(shippingCost)} />
               <SummaryRow label="Biaya layanan" value={rupiah(serviceFee)} />
               <View style={styles.divider} />
               <SummaryRow label="Total estimasi" value={rupiah(total)} strong />
@@ -425,7 +512,7 @@ function Progress({ step }: { step: number }) {
 }
 
 function SummaryRow({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
-  return <View style={styles.summaryRow}><Text style={styles.summaryLabel}>{label}</Text><Text style={[styles.summaryValue, strong && styles.summaryValueStrong]}>{value}</Text></View>;
+  return <View style={styles.summaryRow}><Text style={styles.summaryLabel}>{label}</Text><Text selectable style={[styles.summaryValue, strong && styles.summaryValueStrong]}>{value}</Text></View>;
 }
 
 function Field({ label, value, onChangeText, placeholder, multiline = false, optional = false, keyboardType = 'default' }: { label: string; value: string; onChangeText: (value: string) => void; placeholder: string; multiline?: boolean; optional?: boolean; keyboardType?: 'default' | 'phone-pad' }) {
@@ -492,11 +579,10 @@ const styles = StyleSheet.create({
   field: { gap: 6 },
   fieldInput: { minHeight: 48, borderRadius: 14, backgroundColor: '#F7F8F9', borderWidth: 1, borderColor: '#E5E8EC', paddingHorizontal: 12, color: palette.ink, fontSize: 12 },
   fieldInputMultiline: { minHeight: 86, textAlignVertical: 'top', paddingTop: 12 },
-  mapNotice: { flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 16, backgroundColor: '#EEF4FF', padding: 12 },
-  mapNoticeIcon: { color: palette.blue, fontSize: 20, fontWeight: '900' },
-  mapNoticeCopy: { flex: 1, gap: 2 },
-  mapNoticeTitle: { color: palette.ink, fontSize: 10, fontWeight: '900' },
-  mapNoticeText: { color: palette.muted, fontSize: 9, lineHeight: 14 },
+  distanceCard: { gap: 4, borderRadius: 16, backgroundColor: palette.blueSoft, padding: 13 },
+  distanceLabel: { color: '#50647E', fontSize: 9, fontWeight: '700' },
+  distanceValue: { color: palette.ink, fontSize: 18, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  distanceHint: { color: '#61748C', fontSize: 8, lineHeight: 13 },
   infoBanner: { flexDirection: 'row', gap: 9, borderRadius: 16, backgroundColor: palette.blueSoft, padding: 12 },
   infoSymbol: { color: palette.blue, fontSize: 13, fontWeight: '900' },
   infoText: { flex: 1, color: '#50647E', fontSize: 9, lineHeight: 14 },
@@ -511,6 +597,7 @@ const styles = StyleSheet.create({
   vehicleCapacity: { color: palette.brandDark, fontSize: 9, fontWeight: '800' },
   vehicleDescription: { color: palette.muted, fontSize: 9, lineHeight: 14 },
   vehiclePrice: { color: palette.green, fontSize: 10, fontWeight: '900' },
+  vehicleFormula: { color: palette.muted, fontSize: 8 },
   summaryCard: { gap: 10, borderRadius: 20, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, padding: 15 },
   summaryTitle: { color: palette.ink, fontSize: 12, fontWeight: '900' },
   summaryRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
@@ -530,10 +617,10 @@ const styles = StyleSheet.create({
   successIconText: { color: palette.green, fontSize: 26, fontWeight: '900' },
   successTitle: { color: palette.ink, fontSize: 24, fontWeight: '900' },
   successBody: { color: palette.muted, fontSize: 11, lineHeight: 17 },
-  orderCode: { color: palette.brandDark, fontSize: 20, fontWeight: '900', letterSpacing: 0.5 },
-  primaryButton: { minHeight: 50, alignItems: 'center', justifyContent: 'center', borderRadius: 15, backgroundColor: palette.ink, paddingHorizontal: 18 },
-  primaryButtonText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
-  secondaryFullButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 15, backgroundColor: '#F3F5F6' },
+  orderCode: { color: palette.brandDark, fontSize: 18, fontWeight: '900', letterSpacing: 0.4 },
+  primaryButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 15, backgroundColor: palette.ink, paddingHorizontal: 18 },
+  primaryButtonText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
+  secondaryFullButton: { minHeight: 48, alignItems: 'center', justifyContent: 'center', borderRadius: 15, backgroundColor: '#F1F3F5' },
   secondaryFullButtonText: { color: palette.ink, fontSize: 11, fontWeight: '900' },
   pressed: { opacity: 0.76 },
 });
