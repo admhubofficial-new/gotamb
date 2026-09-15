@@ -1,126 +1,357 @@
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { BottomNav, BrandMark, SectionHeader, StatusChip, palette } from '@/components/gotamb-ui';
+import {
+  CustomerMapItem,
+  CustomerMapSurface,
+  CustomerMapVendor,
+} from '@/components/customer-map-surface';
+import { BottomNav, BrandMark, StatusChip, palette } from '@/components/gotamb-ui';
+import { supabase } from '../../lib/supabase';
 
-const categories = [
-  ['PS', 'Pasir', palette.brandSoft, palette.brandDark],
-  ['BS', 'Batu split', palette.blueSoft, palette.blue],
-  ['TU', 'Tanah urug', palette.greenSoft, palette.green],
-  ['ST', 'Sirtu', palette.purpleSoft, palette.purple],
-] as const;
+type VendorRow = {
+  id: string;
+  nama_perusahaan: string;
+  logo_url: string | null;
+  alamat: string | null;
+  lokasi_lat: number | null;
+  lokasi_lng: number | null;
+};
 
-const products = [
-  ['pasir-beton', 'Pasir Beton Premium', 'Mitra Pasir Jaya', '7,2 km', 'Rp 190.000 / m³', 'PS'],
-  ['batu-split', 'Batu Split 1–2', 'CV Batu Makmur', '12,4 km', 'Rp 320.000 / ton', 'BS'],
-  ['tanah-urug', 'Tanah Urug Pilihan', 'Tambang Sejahtera', '9,8 km', 'Rp 850.000 / truk', 'TU'],
-] as const;
+function rupiah(value: number) {
+  return `Rp ${new Intl.NumberFormat('id-ID', { maximumFractionDigits: 0 }).format(value)}`;
+}
 
 export default function CustomerHome() {
   const insets = useSafeAreaInsets();
+  const [vendors, setVendors] = useState<CustomerMapVendor[]>([]);
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('Semua');
+  const [selectedVendorId, setSelectedVendorId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   function open(section: string) {
     router.push(`/explore?role=customer&section=${section}`);
   }
 
-  function startOrder(material?: string) {
-    router.push(material ? `/customer-order?material=${material}` : '/customer-order');
-  }
+  const loadMarketplace = useCallback(async () => {
+    setLoading(true);
+    setError('');
+
+    const { data: vendorData, error: vendorError } = await supabase
+      .from('vendors')
+      .select('id, nama_perusahaan, logo_url, alamat, lokasi_lat, lokasi_lng')
+      .eq('status_verifikasi', 'terverifikasi')
+      .order('created_at', { ascending: false });
+
+    if (vendorError) {
+      setLoading(false);
+      setError(`Vendor belum dapat dimuat: ${vendorError.message}`);
+      return;
+    }
+
+    const vendorRows = (vendorData ?? []) as VendorRow[];
+    if (!vendorRows.length) {
+      setVendors([]);
+      setLoading(false);
+      return;
+    }
+
+    const vendorIds = vendorRows.map((vendor) => vendor.id);
+    const { data: itemData, error: itemError } = await supabase
+      .from('items')
+      .select('id, vendor_id, kategori, nama_item, harga, satuan, stok, lokasi_lat, lokasi_lng')
+      .in('vendor_id', vendorIds)
+      .gt('stok', 0)
+      .order('created_at', { ascending: false });
+
+    if (itemError) {
+      setLoading(false);
+      setError(`Material belum dapat dimuat: ${itemError.message}`);
+      return;
+    }
+
+    const items = (itemData ?? []) as CustomerMapItem[];
+    const nextVendors = vendorRows.map<CustomerMapVendor>((vendor) => ({
+      ...vendor,
+      items: items.filter((item) => item.vendor_id === vendor.id),
+    }));
+
+    setVendors(nextVendors);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    loadMarketplace();
+  }, [loadMarketplace]);
+
+  const categories = useMemo(() => {
+    const unique = Array.from(
+      new Set(
+        vendors
+          .flatMap((vendor) => vendor.items)
+          .map((item) => item.kategori.trim())
+          .filter(Boolean),
+      ),
+    );
+    return ['Semua', ...unique];
+  }, [vendors]);
+
+  const filteredVendors = useMemo(() => {
+    const cleanQuery = query.trim().toLowerCase();
+    const hasFilter = Boolean(cleanQuery) || category !== 'Semua';
+
+    return vendors
+      .map((vendor) => {
+        if (!hasFilter) return vendor;
+
+        const matchingItems = vendor.items.filter((item) => {
+          const matchesCategory = category === 'Semua' || item.kategori === category;
+          const matchesQuery =
+            !cleanQuery ||
+            item.nama_item.toLowerCase().includes(cleanQuery) ||
+            item.kategori.toLowerCase().includes(cleanQuery) ||
+            vendor.nama_perusahaan.toLowerCase().includes(cleanQuery);
+          return matchesCategory && matchesQuery;
+        });
+
+        return { ...vendor, items: matchingItems };
+      })
+      .filter((vendor) => !hasFilter || vendor.items.length > 0);
+  }, [category, query, vendors]);
+
+  useEffect(() => {
+    if (selectedVendorId && !filteredVendors.some((vendor) => vendor.id === selectedVendorId)) {
+      setSelectedVendorId(null);
+    }
+  }, [filteredVendors, selectedVendorId]);
+
+  const selectedVendor = filteredVendors.find((vendor) => vendor.id === selectedVendorId) ?? null;
+  const selectedItems = selectedVendor?.items.slice(0, 2) ?? [];
+  const activeFilterCount = (query.trim() ? 1 : 0) + (category !== 'Semua' ? 1 : 0);
 
   return (
     <View style={styles.screen}>
-      <ScrollView
-        contentInsetAdjustmentBehavior="automatic"
-        contentContainerStyle={[styles.container, { paddingTop: Math.max(insets.top + 16, 28), paddingBottom: 28 }]}>
-        <View style={styles.topBar}>
-          <BrandMark compact />
-          <Pressable onPress={() => open('notifications')} style={styles.locationPill}>
-            <Text style={styles.locationDot}>●</Text>
-            <View><Text style={styles.locationLabel}>Lokasi kirim</Text><Text style={styles.locationValue}>Sumedang</Text></View>
+      <View style={styles.mapStage}>
+        <CustomerMapSurface
+          vendors={filteredVendors}
+          selectedVendorId={selectedVendorId}
+          loading={loading}
+          onSelectVendor={setSelectedVendorId}
+        />
+
+        <View style={[styles.topBar, { top: Math.max(insets.top + 9, 17) }]}>
+          <View style={styles.brandPill}>
+            <BrandMark compact />
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => open('location')}
+            style={({ pressed }) => [styles.locationPill, pressed && styles.pressed]}>
+            <View style={styles.locationMark}><Text style={styles.locationMarkText}>⌖</Text></View>
+            <View style={styles.locationCopy}>
+              <Text style={styles.locationLabel}>Area pencarian</Text>
+              <Text style={styles.locationValue}>Sumedang</Text>
+            </View>
+            <Text style={styles.locationChevron}>⌄</Text>
           </Pressable>
         </View>
 
-        <View style={styles.greetingRow}>
-          <View style={styles.greetingCopy}>
-            <Text selectable style={styles.eyebrow}>Selamat datang</Text>
-            <Text selectable style={styles.title}>Cari material untuk proyekmu.</Text>
-            <Text selectable style={styles.subtitle}>Bandingkan harga, vendor, lalu pesan sekaligus pilih armada pengiriman.</Text>
-          </View>
-          <View style={styles.avatar}><Text style={styles.avatarText}>CU</Text></View>
-        </View>
-
-        <Pressable onPress={() => open('market')} style={({ pressed }) => [styles.searchBox, pressed && styles.pressed]}>
-          <Text style={styles.searchIcon}>⌕</Text>
-          <Text style={styles.searchPlaceholder}>Cari pasir, batu split, tanah urug...</Text>
-          <View style={styles.filterButton}><Text style={styles.filterSymbol}>≡</Text></View>
-        </Pressable>
-
-        <View style={styles.section}>
-          <SectionHeader title="Kategori material" />
-          <View style={styles.categoryRow}>
-            {categories.map(([symbol, label, backgroundColor, color]) => (
-              <Pressable key={label} onPress={() => startOrder()} style={({ pressed }) => [styles.categoryCard, pressed && styles.pressed]}>
-                <View style={[styles.categoryIcon, { backgroundColor }]}><Text style={[styles.categorySymbol, { color }]}>{symbol}</Text></View>
-                <Text style={styles.categoryLabel}>{label}</Text>
+        <View style={[styles.searchWrap, { top: Math.max(insets.top + 67, 75) }]}>
+          <View style={styles.searchBox}>
+            <Text style={styles.searchIcon}>⌕</Text>
+            <TextInput
+              accessibilityLabel="Cari material"
+              value={query}
+              onChangeText={setQuery}
+              placeholder="Cari pasir, batu split, tanah urug..."
+              placeholderTextColor="#89939F"
+              style={styles.searchInput}
+              returnKeyType="search"
+            />
+            {query ? (
+              <Pressable accessibilityRole="button" onPress={() => setQuery('')} style={styles.clearButton}>
+                <Text style={styles.clearButtonText}>×</Text>
               </Pressable>
-            ))}
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => open('market')}
+              style={({ pressed }) => [styles.filterButton, pressed && styles.pressed]}>
+              <Text style={styles.filterSymbol}>≡</Text>
+              {activeFilterCount ? <View style={styles.filterDot} /> : null}
+            </Pressable>
           </View>
         </View>
 
-        <View style={styles.promoCard}>
-          <View style={styles.promoCopy}>
-            <StatusChip label="PENGIRIMAN TERINTEGRASI" tone="brand" />
-            <Text selectable style={styles.promoTitle}>Material sampai lokasi tanpa cari armada sendiri.</Text>
-            <Text selectable style={styles.promoBody}>Pilih material, isi alamat proyek, tentukan armada, lalu cek total dalam satu alur.</Text>
-            <Pressable onPress={() => startOrder()} style={styles.promoButton}><Text style={styles.promoButtonText}>Mulai pesan</Text></Pressable>
-          </View>
-          <View style={styles.promoGraphic}>
-            <View style={styles.promoRoad} />
-            <View style={styles.promoTruck}><Text style={styles.promoTruckText}>GT</Text></View>
-          </View>
+        <View style={[styles.categoryWrap, { top: Math.max(insets.top + 130, 138) }]}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.categoryContent}>
+            {categories.map((item) => {
+              const active = category === item;
+              return (
+                <Pressable
+                  key={item}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: active }}
+                  onPress={() => setCategory(item)}
+                  style={({ pressed }) => [styles.categoryChip, active && styles.categoryChipActive, pressed && styles.pressed]}>
+                  <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>{item}</Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
         </View>
 
-        <View style={styles.section}>
-          <SectionHeader title="Rekomendasi dekat Anda" action="Lihat semua" onAction={() => open('market')} />
-          <View style={styles.productList}>
-            {products.map((item, index) => (
-              <Pressable key={item[0]} onPress={() => startOrder(item[0])} style={({ pressed }) => [styles.productCard, pressed && styles.pressed]}>
-                <View style={[styles.productImage, index === 0 ? styles.imageBrand : index === 1 ? styles.imageBlue : styles.imageGreen]}>
-                  <Text style={styles.productImageText}>{item[5]}</Text>
+        <View style={styles.mapControls}>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Tampilkan semua vendor"
+            onPress={() => {
+              setSelectedVendorId(null);
+              setQuery('');
+              setCategory('Semua');
+            }}
+            style={({ pressed }) => [styles.mapControlButton, pressed && styles.pressed]}>
+            <Text style={styles.mapControlSymbol}>◎</Text>
+          </Pressable>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Muat ulang vendor"
+            onPress={loadMarketplace}
+            style={({ pressed }) => [styles.mapControlButton, pressed && styles.pressed]}>
+            <Text style={styles.mapControlSymbol}>↻</Text>
+          </Pressable>
+        </View>
+
+        {error ? (
+          <View style={styles.errorBanner}>
+            <Text selectable style={styles.errorText}>{error}</Text>
+            <Pressable onPress={loadMarketplace}><Text style={styles.retryText}>Coba lagi</Text></Pressable>
+          </View>
+        ) : null}
+
+        <View style={styles.bottomSheet}>
+          {selectedVendor ? (
+            <>
+              <View style={styles.sheetHandle} />
+              <View style={styles.vendorHeading}>
+                <View style={styles.vendorAvatar}>
+                  <Text style={styles.vendorAvatarText}>{selectedVendor.nama_perusahaan.slice(0, 2).toUpperCase()}</Text>
                 </View>
-                <View style={styles.productCopy}>
-                  <Text selectable style={styles.productTitle}>{item[1]}</Text>
-                  <Text selectable style={styles.vendorText}>{item[2]} · {item[3]}</Text>
-                  <View style={styles.productMetaRow}>
-                    <Text selectable style={styles.productPrice}>{item[4]}</Text>
-                    <StatusChip label="Pesan" tone="brand" />
+                <View style={styles.vendorHeadingCopy}>
+                  <View style={styles.vendorTitleRow}>
+                    <Text numberOfLines={1} style={styles.vendorName}>{selectedVendor.nama_perusahaan}</Text>
+                    <StatusChip label="Terverifikasi" tone="green" />
                   </View>
+                  <Text numberOfLines={1} style={styles.vendorAddress}>
+                    {selectedVendor.alamat || 'Lokasi vendor tersedia di peta'}
+                  </Text>
                 </View>
-                <Text style={styles.chevron}>›</Text>
-              </Pressable>
-            ))}
-          </View>
-        </View>
+                <Pressable accessibilityRole="button" onPress={() => setSelectedVendorId(null)} hitSlop={8}>
+                  <Text style={styles.closeSheet}>×</Text>
+                </Pressable>
+              </View>
 
-        <Pressable onPress={() => startOrder()} style={({ pressed }) => [styles.orderCta, pressed && styles.pressed]}>
-          <View style={styles.orderCtaIcon}><Text style={styles.orderCtaIconText}>＋</Text></View>
-          <View style={styles.orderCtaCopy}>
-            <Text selectable style={styles.orderCtaTitle}>Buat pesanan baru</Text>
-            <Text selectable style={styles.orderCtaBody}>Material → alamat → armada → ringkasan → buat order</Text>
-          </View>
-          <Text style={styles.chevron}>›</Text>
-        </Pressable>
+              <View style={styles.vendorStats}>
+                <Text style={styles.vendorStatsText}>{selectedVendor.items.length} material tersedia</Text>
+                <Text style={styles.vendorStatsDot}>•</Text>
+                <Text style={styles.vendorStatsText}>Ketuk material untuk mulai pesan</Text>
+              </View>
 
-        <View style={styles.orderSummary}>
-          <View style={styles.orderSummaryIcon}><Text style={styles.orderSummarySymbol}>↗</Text></View>
-          <View style={styles.orderSummaryCopy}>
-            <Text selectable style={styles.orderSummaryTitle}>1 pesanan sedang dikirim</Text>
-            <Text selectable style={styles.orderSummaryBody}>Batu Split 1–2 · estimasi tiba 17:20</Text>
-          </View>
-          <Pressable onPress={() => router.push('/customer-orders')}><Text style={styles.orderSummaryLink}>Lacak</Text></Pressable>
+              {selectedItems.length ? (
+                <View style={styles.itemList}>
+                  {selectedItems.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => router.push('/customer-order')}
+                      style={({ pressed }) => [styles.itemRow, pressed && styles.pressed]}>
+                      <View style={styles.itemMark}><Text style={styles.itemMarkText}>{item.kategori.slice(0, 2).toUpperCase()}</Text></View>
+                      <View style={styles.itemCopy}>
+                        <Text numberOfLines={1} style={styles.itemName}>{item.nama_item}</Text>
+                        <Text style={styles.itemMeta}>Stok {item.stok} {item.satuan}</Text>
+                      </View>
+                      <Text style={styles.itemPrice}>{rupiah(item.harga)} / {item.satuan}</Text>
+                      <Text style={styles.itemChevron}>›</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : (
+                <View style={styles.noItemBox}>
+                  <Text style={styles.noItemText}>Vendor ini belum memiliki material aktif yang sesuai pencarian.</Text>
+                </View>
+              )}
+
+              <View style={styles.sheetActions}>
+                <Pressable onPress={() => open('favorites')} style={({ pressed }) => [styles.secondaryButton, pressed && styles.pressed]}>
+                  <Text style={styles.secondaryButtonText}>♡ Simpan</Text>
+                </Pressable>
+                <Pressable onPress={() => router.push('/customer-order')} style={({ pressed }) => [styles.primaryButton, pressed && styles.pressed]}>
+                  <Text style={styles.primaryButtonText}>Lihat material</Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.sheetHandle} />
+              <View style={styles.resultHeading}>
+                <View style={styles.resultCopy}>
+                  <Text style={styles.resultEyebrow}>VENDOR DI PETA</Text>
+                  <Text selectable style={styles.resultTitle}>
+                    {loading ? 'Mencari vendor...' : `${filteredVendors.length} vendor ditemukan`}
+                  </Text>
+                  <Text selectable style={styles.resultSubtitle}>
+                    {query || category !== 'Semua'
+                      ? 'Peta hanya menampilkan perusahaan yang memiliki material sesuai pencarian.'
+                      : 'Tampilan awal menunjukkan logo perusahaan, bukan pin per item. Ketuk logo untuk melihat materialnya.'}
+                  </Text>
+                </View>
+                <View style={styles.companyLegend}>
+                  <Text style={styles.companyLegendText}>LOGO</Text>
+                </View>
+              </View>
+
+              {!loading && !filteredVendors.length ? (
+                <View style={styles.emptyResult}>
+                  <Text style={styles.emptyResultTitle}>Belum ada vendor yang dapat ditampilkan</Text>
+                  <Text style={styles.emptyResultText}>
+                    Vendor perlu berstatus terverifikasi dan memiliki titik perusahaan atau titik material.
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={styles.quickActions}>
+                <Pressable onPress={() => router.push('/customer-orders')} style={({ pressed }) => [styles.quickAction, pressed && styles.pressed]}>
+                  <Text style={styles.quickActionSymbol}>↗</Text>
+                  <View style={styles.quickActionCopy}>
+                    <Text style={styles.quickActionTitle}>Pesanan saya</Text>
+                    <Text style={styles.quickActionText}>Lacak pengiriman aktif</Text>
+                  </View>
+                </Pressable>
+                <Pressable onPress={() => router.push('/customer-order')} style={({ pressed }) => [styles.quickAction, styles.quickActionBrand, pressed && styles.pressed]}>
+                  <Text style={styles.quickActionSymbol}>＋</Text>
+                  <View style={styles.quickActionCopy}>
+                    <Text style={styles.quickActionTitle}>Pesan material</Text>
+                    <Text style={styles.quickActionText}>Mulai alur pemesanan</Text>
+                  </View>
+                </Pressable>
+              </View>
+            </>
+          )}
         </View>
-      </ScrollView>
+      </View>
 
       <BottomNav
         activeKey="home"
@@ -137,65 +368,82 @@ export default function CustomerHome() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: palette.background },
-  container: { paddingHorizontal: 18, gap: 22 },
-  topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  locationPill: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 14, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, paddingHorizontal: 11, paddingVertical: 8 },
-  locationDot: { color: palette.brandDark, fontSize: 9 },
+  mapStage: { flex: 1, position: 'relative', backgroundColor: '#EEF1E8' },
+  topBar: { position: 'absolute', left: 14, right: 14, zIndex: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  brandPill: { minHeight: 48, justifyContent: 'center', borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.96)', borderWidth: 1, borderColor: 'rgba(226,229,224,0.95)', paddingHorizontal: 11, boxShadow: '0 7px 18px rgba(23, 32, 42, 0.09)' },
+  locationPill: { minHeight: 48, maxWidth: 172, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.96)', borderWidth: 1, borderColor: 'rgba(226,229,224,0.95)', paddingHorizontal: 9, boxShadow: '0 7px 18px rgba(23, 32, 42, 0.09)' },
+  locationMark: { width: 31, height: 31, borderRadius: 11, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.brandSoft },
+  locationMarkText: { color: palette.brandDark, fontSize: 16, fontWeight: '900' },
+  locationCopy: { flex: 1 },
   locationLabel: { color: palette.muted, fontSize: 8, fontWeight: '700' },
   locationValue: { color: palette.ink, fontSize: 11, fontWeight: '900' },
-  greetingRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 },
-  greetingCopy: { flex: 1, gap: 5 },
-  eyebrow: { color: palette.brandDark, fontSize: 11, fontWeight: '900', letterSpacing: 0.5, textTransform: 'uppercase' },
-  title: { color: palette.ink, fontSize: 28, lineHeight: 33, fontWeight: '900', letterSpacing: -0.9 },
-  subtitle: { color: palette.muted, fontSize: 13, lineHeight: 19 },
-  avatar: { width: 45, height: 45, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.ink },
-  avatarText: { color: '#FFFFFF', fontSize: 12, fontWeight: '900' },
-  searchBox: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 17, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, paddingLeft: 15, paddingRight: 7, borderCurve: 'continuous', boxShadow: '0 6px 20px rgba(23, 32, 42, 0.04)' },
+  locationChevron: { color: palette.muted, fontSize: 12, fontWeight: '900' },
+  searchWrap: { position: 'absolute', left: 14, right: 14, zIndex: 19 },
+  searchBox: { minHeight: 54, flexDirection: 'row', alignItems: 'center', gap: 9, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.98)', borderWidth: 1, borderColor: '#E0E4DE', paddingLeft: 14, paddingRight: 7, boxShadow: '0 9px 22px rgba(23, 32, 42, 0.11)' },
   searchIcon: { color: palette.ink, fontSize: 21, fontWeight: '900' },
-  searchPlaceholder: { flex: 1, color: '#8A94A2', fontSize: 12 },
-  filterButton: { width: 39, height: 39, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.brand },
-  filterSymbol: { color: palette.ink, fontSize: 17, fontWeight: '900' },
-  section: { gap: 12 },
-  categoryRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
-  categoryCard: { flex: 1, minWidth: 72, alignItems: 'center', gap: 7 },
-  categoryIcon: { width: 52, height: 52, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  categorySymbol: { fontSize: 12, fontWeight: '900' },
-  categoryLabel: { color: palette.ink, fontSize: 10, fontWeight: '800', textAlign: 'center' },
-  promoCard: { minHeight: 186, flexDirection: 'row', overflow: 'hidden', backgroundColor: palette.ink, borderRadius: 23, borderCurve: 'continuous' },
-  promoCopy: { flex: 1.35, padding: 18, gap: 8 },
-  promoTitle: { color: '#FFFFFF', fontSize: 18, lineHeight: 23, fontWeight: '900', letterSpacing: -0.4 },
-  promoBody: { color: '#BFC7D1', fontSize: 10, lineHeight: 16 },
-  promoButton: { alignSelf: 'flex-start', borderRadius: 12, backgroundColor: palette.brand, paddingHorizontal: 13, paddingVertical: 10, marginTop: 2 },
-  promoButtonText: { color: palette.ink, fontSize: 10, fontWeight: '900' },
-  promoGraphic: { flex: 0.65, position: 'relative', overflow: 'hidden', backgroundColor: '#2B3642' },
-  promoRoad: { position: 'absolute', width: 180, height: 54, left: -34, bottom: 36, backgroundColor: '#495564', transform: [{ rotate: '-18deg' }] },
-  promoTruck: { position: 'absolute', right: 20, top: 64, width: 54, height: 38, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.brand },
-  promoTruckText: { color: palette.ink, fontSize: 12, fontWeight: '900' },
-  productList: { gap: 10 },
-  productCard: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFFFFF', borderRadius: 18, borderWidth: 1, borderColor: palette.line, padding: 11, borderCurve: 'continuous' },
-  productImage: { width: 67, height: 67, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  imageBrand: { backgroundColor: '#F7CD77' },
-  imageBlue: { backgroundColor: '#BFD1FA' },
-  imageGreen: { backgroundColor: '#BFE5D5' },
-  productImageText: { color: palette.ink, fontSize: 15, fontWeight: '900' },
-  productCopy: { flex: 1, gap: 4 },
-  productTitle: { color: palette.ink, fontSize: 13, fontWeight: '900' },
-  vendorText: { color: palette.muted, fontSize: 10 },
-  productMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 7, marginTop: 2 },
-  productPrice: { color: palette.green, fontSize: 11, fontWeight: '900' },
-  chevron: { color: '#A0A8B3', fontSize: 25, fontWeight: '700' },
-  orderCta: { flexDirection: 'row', alignItems: 'center', gap: 11, borderRadius: 19, backgroundColor: palette.brandSoft, borderWidth: 1, borderColor: '#F3D18A', padding: 14 },
-  orderCtaIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.brand },
-  orderCtaIconText: { color: palette.ink, fontSize: 20, fontWeight: '900' },
-  orderCtaCopy: { flex: 1, gap: 3 },
-  orderCtaTitle: { color: palette.ink, fontSize: 12, fontWeight: '900' },
-  orderCtaBody: { color: '#7A612E', fontSize: 9, lineHeight: 14 },
-  orderSummary: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, borderRadius: 18, padding: 14 },
-  orderSummaryIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.greenSoft },
-  orderSummarySymbol: { color: palette.green, fontSize: 18, fontWeight: '900' },
-  orderSummaryCopy: { flex: 1, gap: 3 },
-  orderSummaryTitle: { color: palette.ink, fontSize: 12, fontWeight: '900' },
-  orderSummaryBody: { color: palette.muted, fontSize: 10 },
-  orderSummaryLink: { color: palette.brandDark, fontSize: 11, fontWeight: '900' },
-  pressed: { opacity: 0.77 },
+  searchInput: { flex: 1, minHeight: 50, color: palette.ink, fontSize: 13 },
+  clearButton: { width: 28, height: 28, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0F2F1' },
+  clearButtonText: { color: palette.muted, fontSize: 18, lineHeight: 20, fontWeight: '700' },
+  filterButton: { position: 'relative', width: 41, height: 41, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.brand },
+  filterSymbol: { color: palette.ink, fontSize: 18, fontWeight: '900' },
+  filterDot: { position: 'absolute', right: 5, top: 5, width: 7, height: 7, borderRadius: 4, backgroundColor: palette.red, borderWidth: 1, borderColor: '#FFFFFF' },
+  categoryWrap: { position: 'absolute', left: 0, right: 0, zIndex: 18 },
+  categoryContent: { paddingHorizontal: 14, gap: 8 },
+  categoryChip: { minHeight: 34, justifyContent: 'center', borderRadius: 999, backgroundColor: 'rgba(255,255,255,0.94)', borderWidth: 1, borderColor: '#E0E4DE', paddingHorizontal: 13, boxShadow: '0 4px 12px rgba(23, 32, 42, 0.06)' },
+  categoryChipActive: { backgroundColor: palette.ink, borderColor: palette.ink },
+  categoryChipText: { color: '#556070', fontSize: 10, fontWeight: '800' },
+  categoryChipTextActive: { color: '#FFFFFF' },
+  mapControls: { position: 'absolute', zIndex: 17, right: 14, top: '42%', gap: 8 },
+  mapControlButton: { width: 43, height: 43, borderRadius: 15, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.96)', borderWidth: 1, borderColor: '#E0E4DE', boxShadow: '0 5px 14px rgba(23, 32, 42, 0.1)' },
+  mapControlSymbol: { color: palette.ink, fontSize: 19, fontWeight: '900' },
+  errorBanner: { position: 'absolute', zIndex: 22, left: 14, right: 14, top: '27%', flexDirection: 'row', alignItems: 'center', gap: 10, borderRadius: 14, backgroundColor: '#FFF1F1', borderWidth: 1, borderColor: '#F7CACA', padding: 11 },
+  errorText: { flex: 1, color: '#A92020', fontSize: 10, lineHeight: 15 },
+  retryText: { color: '#8C1717', fontSize: 10, fontWeight: '900' },
+  bottomSheet: { position: 'absolute', zIndex: 25, left: 12, right: 12, bottom: 12, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.98)', borderWidth: 1, borderColor: '#E3E6E1', padding: 14, gap: 11, borderCurve: 'continuous', boxShadow: '0 12px 28px rgba(23, 32, 42, 0.16)' },
+  sheetHandle: { width: 37, height: 4, borderRadius: 2, alignSelf: 'center', backgroundColor: '#D8DDE1' },
+  resultHeading: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  resultCopy: { flex: 1, gap: 3 },
+  resultEyebrow: { color: palette.brandDark, fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
+  resultTitle: { color: palette.ink, fontSize: 17, fontWeight: '900', letterSpacing: -0.3 },
+  resultSubtitle: { color: palette.muted, fontSize: 9, lineHeight: 14 },
+  companyLegend: { width: 46, height: 46, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.brandSoft, borderWidth: 1, borderColor: '#F4D79B' },
+  companyLegendText: { color: palette.brandDark, fontSize: 9, fontWeight: '900' },
+  emptyResult: { borderRadius: 14, backgroundColor: '#F7F8F8', padding: 11, gap: 3 },
+  emptyResultTitle: { color: palette.ink, fontSize: 10, fontWeight: '900' },
+  emptyResultText: { color: palette.muted, fontSize: 9, lineHeight: 14 },
+  quickActions: { flexDirection: 'row', gap: 8 },
+  quickAction: { flex: 1, minHeight: 57, flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 16, backgroundColor: '#F5F7F8', borderWidth: 1, borderColor: '#E7EAED', paddingHorizontal: 10 },
+  quickActionBrand: { backgroundColor: palette.brandSoft, borderColor: '#F4D79B' },
+  quickActionSymbol: { color: palette.ink, fontSize: 17, fontWeight: '900' },
+  quickActionCopy: { flex: 1, gap: 2 },
+  quickActionTitle: { color: palette.ink, fontSize: 10, fontWeight: '900' },
+  quickActionText: { color: palette.muted, fontSize: 8 },
+  vendorHeading: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  vendorAvatar: { width: 47, height: 47, borderRadius: 16, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.ink },
+  vendorAvatarText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
+  vendorHeadingCopy: { flex: 1, gap: 3 },
+  vendorTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  vendorName: { flex: 1, color: palette.ink, fontSize: 14, fontWeight: '900' },
+  vendorAddress: { color: palette.muted, fontSize: 9 },
+  closeSheet: { color: '#89939F', fontSize: 24, lineHeight: 24 },
+  vendorStats: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  vendorStatsText: { color: palette.muted, fontSize: 8, fontWeight: '700' },
+  vendorStatsDot: { color: '#A4ACB5', fontSize: 9 },
+  itemList: { gap: 7 },
+  itemRow: { minHeight: 52, flexDirection: 'row', alignItems: 'center', gap: 9, borderRadius: 14, backgroundColor: '#F8F9FA', borderWidth: 1, borderColor: '#E9ECEF', padding: 8 },
+  itemMark: { width: 36, height: 36, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.brandSoft },
+  itemMarkText: { color: palette.brandDark, fontSize: 9, fontWeight: '900' },
+  itemCopy: { flex: 1, gap: 2 },
+  itemName: { color: palette.ink, fontSize: 10, fontWeight: '900' },
+  itemMeta: { color: palette.muted, fontSize: 8 },
+  itemPrice: { color: palette.green, fontSize: 9, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  itemChevron: { color: '#A0A8B3', fontSize: 20, fontWeight: '700' },
+  noItemBox: { borderRadius: 14, backgroundColor: '#F7F8F8', padding: 11 },
+  noItemText: { color: palette.muted, fontSize: 9, lineHeight: 14, textAlign: 'center' },
+  sheetActions: { flexDirection: 'row', gap: 8 },
+  secondaryButton: { minHeight: 43, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: '#F5F7F8', borderWidth: 1, borderColor: '#E3E7EA', paddingHorizontal: 14 },
+  secondaryButtonText: { color: palette.ink, fontSize: 10, fontWeight: '900' },
+  primaryButton: { flex: 1, minHeight: 43, alignItems: 'center', justifyContent: 'center', borderRadius: 14, backgroundColor: palette.brand },
+  primaryButtonText: { color: palette.ink, fontSize: 10, fontWeight: '900' },
+  pressed: { opacity: 0.76 },
 });
