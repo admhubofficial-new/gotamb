@@ -1,4 +1,4 @@
-name: Android Debug APK
+name: Android Test APK
 
 on:
   workflow_dispatch:
@@ -11,9 +11,9 @@ permissions:
   contents: read
 
 jobs:
-  build-debug-apk:
+  build-test-apk:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       CI: '1'
       GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
@@ -33,6 +33,9 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Setup Gradle cache
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Install dependencies
         run: npm ci
 
@@ -42,16 +45,16 @@ jobs:
       - name: Generate Android project
         run: npx expo prebuild --platform android --clean
 
-      - name: Build debug APK
+      - name: Build standalone test APK
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon
+          ./gradlew assembleRelease --no-daemon
 
-      - name: Upload installable APK
+      - name: Upload standalone APK
         uses: actions/upload-artifact@v4
         with:
-          name: goTamb-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: goTamb-standalone-test-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
           if-no-files-found: error
           retention-days: 14
