@@ -125,7 +125,7 @@ export default function CustomerOrder() {
             <Text selectable style={styles.prototypeText}>Nomor ini belum disimpan ke Supabase karena struktur tabel orders belum tersedia di repo. Tidak ada data produksi yang diubah.</Text>
           </View>
 
-          <Pressable onPress={() => router.replace('/explore?role=customer&section=orders')} style={styles.primaryButton}>
+          <Pressable onPress={() => router.replace(`/customer-orders?created=${createdOrder}`)} style={styles.primaryButton}>
             <Text style={styles.primaryButtonText}>Lihat pesanan</Text>
           </Pressable>
           <Pressable onPress={() => router.replace('/customer-home')} style={styles.secondaryFullButton}>
