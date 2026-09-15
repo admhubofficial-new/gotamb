@@ -7,6 +7,7 @@ module.exports = ({ config }) => {
       'react-native-maps',
       {
         androidGoogleMapsApiKey: googleMapsApiKey,
+        iosGoogleMapsApiKey: googleMapsApiKey,
       },
     ]);
   }
@@ -14,5 +15,23 @@ module.exports = ({ config }) => {
   return {
     ...config,
     plugins,
+    ios: {
+      ...(config.ios ?? {}),
+      infoPlist: {
+        ...(config.ios?.infoPlist ?? {}),
+        NSLocationWhenInUseUsageDescription:
+          'goTamb menggunakan lokasi Anda untuk mencari vendor material terdekat dan menghitung radius pencarian.',
+      },
+    },
+    android: {
+      ...(config.android ?? {}),
+      permissions: Array.from(
+        new Set([
+          ...(config.android?.permissions ?? []),
+          'android.permission.ACCESS_COARSE_LOCATION',
+          'android.permission.ACCESS_FINE_LOCATION',
+        ]),
+      ),
+    },
   };
 };
