@@ -118,7 +118,7 @@ export default function CustomerHome() {
             <Text selectable style={styles.orderSummaryTitle}>1 pesanan sedang dikirim</Text>
             <Text selectable style={styles.orderSummaryBody}>Batu Split 1–2 · estimasi tiba 17:20</Text>
           </View>
-          <Pressable onPress={() => open('orders')}><Text style={styles.orderSummaryLink}>Lacak</Text></Pressable>
+          <Pressable onPress={() => router.push('/customer-orders')}><Text style={styles.orderSummaryLink}>Lacak</Text></Pressable>
         </View>
       </ScrollView>
 
@@ -126,7 +126,7 @@ export default function CustomerHome() {
         activeKey="home"
         items={[
           { key: 'home', symbol: '⌂', label: 'Beranda', onPress: () => {} },
-          { key: 'orders', symbol: '≡', label: 'Pesanan', onPress: () => open('orders') },
+          { key: 'orders', symbol: '≡', label: 'Pesanan', onPress: () => router.push('/customer-orders') },
           { key: 'favorites', symbol: '♡', label: 'Favorit', onPress: () => open('favorites') },
           { key: 'profile', symbol: '○', label: 'Akun', onPress: () => open('profile') },
         ]}
