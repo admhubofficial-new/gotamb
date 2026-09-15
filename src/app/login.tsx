@@ -86,6 +86,10 @@ export default function Login() {
       <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
         {loading ? <ActivityIndicator color="#fff" /> : <Text style={styles.buttonText}>Masuk</Text>}
       </TouchableOpacity>
+
+      <TouchableOpacity onPress={() => router.push('/register')} disabled={loading}>
+        <Text style={styles.registerLink}>Belum punya akun? Daftar</Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -110,4 +114,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   buttonText: { color: '#fff', fontWeight: '600', fontSize: 15 },
+  registerLink: {
+    color: '#2563eb',
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    padding: 16,
+  },
 });
