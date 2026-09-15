@@ -12,9 +12,9 @@ const categories = [
 ] as const;
 
 const products = [
-  ['Pasir Beton Premium', 'Mitra Pasir Jaya', '7,2 km', 'Rp 190.000 / m³', 'PS'],
-  ['Batu Split 1–2', 'CV Batu Makmur', '12,4 km', 'Rp 320.000 / ton', 'BS'],
-  ['Tanah Urug Pilihan', 'Tambang Sejahtera', '9,8 km', 'Rp 850.000 / truk', 'TU'],
+  ['pasir-beton', 'Pasir Beton Premium', 'Mitra Pasir Jaya', '7,2 km', 'Rp 190.000 / m³', 'PS'],
+  ['batu-split', 'Batu Split 1–2', 'CV Batu Makmur', '12,4 km', 'Rp 320.000 / ton', 'BS'],
+  ['tanah-urug', 'Tanah Urug Pilihan', 'Tambang Sejahtera', '9,8 km', 'Rp 850.000 / truk', 'TU'],
 ] as const;
 
 export default function CustomerHome() {
@@ -22,6 +22,10 @@ export default function CustomerHome() {
 
   function open(section: string) {
     router.push(`/explore?role=customer&section=${section}`);
+  }
+
+  function startOrder(material?: string) {
+    router.push(material ? `/customer-order?material=${material}` : '/customer-order');
   }
 
   return (
@@ -41,7 +45,7 @@ export default function CustomerHome() {
           <View style={styles.greetingCopy}>
             <Text selectable style={styles.eyebrow}>Selamat datang</Text>
             <Text selectable style={styles.title}>Cari material untuk proyekmu.</Text>
-            <Text selectable style={styles.subtitle}>Bandingkan harga, vendor, dan pengiriman dalam satu alur.</Text>
+            <Text selectable style={styles.subtitle}>Bandingkan harga, vendor, lalu pesan sekaligus pilih armada pengiriman.</Text>
           </View>
           <View style={styles.avatar}><Text style={styles.avatarText}>CU</Text></View>
         </View>
@@ -56,7 +60,7 @@ export default function CustomerHome() {
           <SectionHeader title="Kategori material" />
           <View style={styles.categoryRow}>
             {categories.map(([symbol, label, backgroundColor, color]) => (
-              <Pressable key={label} onPress={() => open('market')} style={({ pressed }) => [styles.categoryCard, pressed && styles.pressed]}>
+              <Pressable key={label} onPress={() => startOrder()} style={({ pressed }) => [styles.categoryCard, pressed && styles.pressed]}>
                 <View style={[styles.categoryIcon, { backgroundColor }]}><Text style={[styles.categorySymbol, { color }]}>{symbol}</Text></View>
                 <Text style={styles.categoryLabel}>{label}</Text>
               </Pressable>
@@ -68,8 +72,8 @@ export default function CustomerHome() {
           <View style={styles.promoCopy}>
             <StatusChip label="PENGIRIMAN TERINTEGRASI" tone="brand" />
             <Text selectable style={styles.promoTitle}>Material sampai lokasi tanpa cari armada sendiri.</Text>
-            <Text selectable style={styles.promoBody}>Pilih material, tentukan titik proyek, lalu goTamb membantu proses pengirimannya.</Text>
-            <Pressable onPress={() => open('market')} style={styles.promoButton}><Text style={styles.promoButtonText}>Cari material</Text></Pressable>
+            <Text selectable style={styles.promoBody}>Pilih material, isi alamat proyek, tentukan armada, lalu cek total dalam satu alur.</Text>
+            <Pressable onPress={() => startOrder()} style={styles.promoButton}><Text style={styles.promoButtonText}>Mulai pesan</Text></Pressable>
           </View>
           <View style={styles.promoGraphic}>
             <View style={styles.promoRoad} />
@@ -81,23 +85,32 @@ export default function CustomerHome() {
           <SectionHeader title="Rekomendasi dekat Anda" action="Lihat semua" onAction={() => open('market')} />
           <View style={styles.productList}>
             {products.map((item, index) => (
-              <Pressable key={item[0]} onPress={() => open('market')} style={({ pressed }) => [styles.productCard, pressed && styles.pressed]}>
+              <Pressable key={item[0]} onPress={() => startOrder(item[0])} style={({ pressed }) => [styles.productCard, pressed && styles.pressed]}>
                 <View style={[styles.productImage, index === 0 ? styles.imageBrand : index === 1 ? styles.imageBlue : styles.imageGreen]}>
-                  <Text style={styles.productImageText}>{item[4]}</Text>
+                  <Text style={styles.productImageText}>{item[5]}</Text>
                 </View>
                 <View style={styles.productCopy}>
-                  <Text selectable style={styles.productTitle}>{item[0]}</Text>
-                  <Text selectable style={styles.vendorText}>{item[1]} · {item[2]}</Text>
+                  <Text selectable style={styles.productTitle}>{item[1]}</Text>
+                  <Text selectable style={styles.vendorText}>{item[2]} · {item[3]}</Text>
                   <View style={styles.productMetaRow}>
-                    <Text selectable style={styles.productPrice}>{item[3]}</Text>
-                    <StatusChip label="Tersedia" tone="green" />
+                    <Text selectable style={styles.productPrice}>{item[4]}</Text>
+                    <StatusChip label="Pesan" tone="brand" />
                   </View>
                 </View>
-                <Text style={styles.favorite}>♡</Text>
+                <Text style={styles.chevron}>›</Text>
               </Pressable>
             ))}
           </View>
         </View>
+
+        <Pressable onPress={() => startOrder()} style={({ pressed }) => [styles.orderCta, pressed && styles.pressed]}>
+          <View style={styles.orderCtaIcon}><Text style={styles.orderCtaIconText}>＋</Text></View>
+          <View style={styles.orderCtaCopy}>
+            <Text selectable style={styles.orderCtaTitle}>Buat pesanan baru</Text>
+            <Text selectable style={styles.orderCtaBody}>Material → alamat → armada → ringkasan → buat order</Text>
+          </View>
+          <Text style={styles.chevron}>›</Text>
+        </Pressable>
 
         <View style={styles.orderSummary}>
           <View style={styles.orderSummaryIcon}><Text style={styles.orderSummarySymbol}>↗</Text></View>
@@ -170,7 +183,13 @@ const styles = StyleSheet.create({
   vendorText: { color: palette.muted, fontSize: 10 },
   productMetaRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 7, marginTop: 2 },
   productPrice: { color: palette.green, fontSize: 11, fontWeight: '900' },
-  favorite: { alignSelf: 'flex-start', color: palette.red, fontSize: 20, padding: 4 },
+  chevron: { color: '#A0A8B3', fontSize: 25, fontWeight: '700' },
+  orderCta: { flexDirection: 'row', alignItems: 'center', gap: 11, borderRadius: 19, backgroundColor: palette.brandSoft, borderWidth: 1, borderColor: '#F3D18A', padding: 14 },
+  orderCtaIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.brand },
+  orderCtaIconText: { color: palette.ink, fontSize: 20, fontWeight: '900' },
+  orderCtaCopy: { flex: 1, gap: 3 },
+  orderCtaTitle: { color: palette.ink, fontSize: 12, fontWeight: '900' },
+  orderCtaBody: { color: '#7A612E', fontSize: 9, lineHeight: 14 },
   orderSummary: { flexDirection: 'row', alignItems: 'center', gap: 11, backgroundColor: '#FFFFFF', borderWidth: 1, borderColor: palette.line, borderRadius: 18, padding: 14 },
   orderSummaryIcon: { width: 42, height: 42, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: palette.greenSoft },
   orderSummarySymbol: { color: palette.green, fontSize: 18, fontWeight: '900' },
