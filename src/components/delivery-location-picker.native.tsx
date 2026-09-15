@@ -17,10 +17,14 @@ export function DeliveryLocationPicker({
   vendorCoordinate,
   value,
   onChange,
+  routeCoordinates = [],
+  routeSource = null,
 }: {
   vendorCoordinate: DeliveryCoordinate | null;
   value: DeliveryCoordinate | null;
   onChange: (coordinate: DeliveryCoordinate) => void;
+  routeCoordinates?: DeliveryCoordinate[];
+  routeSource?: 'google_routes' | 'fallback' | null;
 }) {
   const initialRegion = useMemo<Region>(() => {
     const center = value ?? vendorCoordinate;
@@ -35,6 +39,13 @@ export function DeliveryLocationPicker({
   function handlePress(event: MapPressEvent) {
     onChange(event.nativeEvent.coordinate);
   }
+
+  const lineCoordinates =
+    routeCoordinates.length > 1
+      ? routeCoordinates
+      : vendorCoordinate && value
+        ? [vendorCoordinate, value]
+        : [];
 
   return (
     <View style={styles.card}>
@@ -68,11 +79,11 @@ export function DeliveryLocationPicker({
               pinColor="#D69B1F"
             />
           ) : null}
-          {vendorCoordinate && value ? (
+          {lineCoordinates.length > 1 ? (
             <Polyline
-              coordinates={[vendorCoordinate, value]}
-              strokeWidth={3}
-              lineDashPattern={[8, 6]}
+              coordinates={lineCoordinates}
+              strokeWidth={4}
+              lineDashPattern={routeSource === 'google_routes' ? undefined : [8, 6]}
               strokeColor="#D69B1F"
             />
           ) : null}
@@ -89,6 +100,11 @@ export function DeliveryLocationPicker({
       <View style={styles.legend}>
         <View style={styles.legendItem}><View style={[styles.dot, styles.vendorDot]} /><Text style={styles.legendText}>Vendor</Text></View>
         <View style={styles.legendItem}><View style={[styles.dot, styles.projectDot]} /><Text style={styles.legendText}>Proyek</Text></View>
+        {routeSource ? (
+          <View style={[styles.routeBadge, routeSource === 'google_routes' ? styles.routeBadgeGoogle : styles.routeBadgeFallback]}>
+            <Text style={styles.routeBadgeText}>{routeSource === 'google_routes' ? 'Google Routes' : 'Estimasi'}</Text>
+          </View>
+        ) : null}
       </View>
     </View>
   );
@@ -106,10 +122,14 @@ const styles = StyleSheet.create({
   hint: { position: 'absolute', left: 24, right: 24, top: 82, alignItems: 'center', gap: 3, borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.93)', borderWidth: 1, borderColor: '#E2E5E8', padding: 12 },
   hintTitle: { color: palette.ink, fontSize: 11, fontWeight: '900' },
   hintText: { color: palette.muted, fontSize: 9, textAlign: 'center' },
-  legend: { flexDirection: 'row', alignItems: 'center', gap: 14 },
+  legend: { flexDirection: 'row', alignItems: 'center', gap: 10, flexWrap: 'wrap' },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   dot: { width: 8, height: 8, borderRadius: 4 },
   vendorDot: { backgroundColor: '#223142' },
   projectDot: { backgroundColor: '#D69B1F' },
   legendText: { color: palette.muted, fontSize: 8, fontWeight: '700' },
+  routeBadge: { borderRadius: 999, paddingHorizontal: 8, paddingVertical: 5 },
+  routeBadgeGoogle: { backgroundColor: '#E8F7ED' },
+  routeBadgeFallback: { backgroundColor: '#FFF3D8' },
+  routeBadgeText: { color: palette.ink, fontSize: 8, fontWeight: '800' },
 });
