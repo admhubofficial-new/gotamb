@@ -421,8 +421,8 @@ export default function CustomerOrder() {
           <View style={styles.summaryCard}>
             <SummaryRow label="Material" value={`${material.name} · ${quantity} ${material.unit}`} />
             <SummaryRow label="Vendor" value={material.vendor} />
-            <SummaryRow label="Rute" value={`${routeDistanceKm.toFixed(1)} km · ${durationText(routeQuote.durationSeconds)}`} />
-            <SummaryRow label="Sumber rute" value={routeQuote.source === 'google_routes' ? 'Google Routes' : 'Estimasi sementara'} />
+            <SummaryRow label="Rute" value={`${routeDistanceKm.toFixed(1)} km · ${durationText(routeQuote?.durationSeconds ?? 0)}`} />
+            <SummaryRow label="Sumber rute" value={routeQuote?.source === 'google_routes' ? 'Google Routes' : 'Estimasi sementara'} />
             <SummaryRow label="Armada" value={`${selectedFleet.jenis_armada} · ${selectedFleet.no_polisi}`} />
             <SummaryRow label="Driver" value={selectedFleet.driver_id ? 'Sudah ditugaskan' : 'Menunggu penugasan vendor'} />
             <SummaryRow label="Total" value={rupiah(total)} strong />
@@ -510,8 +510,8 @@ export default function CustomerOrder() {
           <View style={styles.section}>
             {routeQuote ? (
               <View style={styles.routeCard}>
-                <View style={styles.routeHeader}><Text style={styles.routeTitle}>Rute vendor → proyek</Text><StatusChip label={routeQuote.source === 'google_routes' ? 'Google Routes' : 'Estimasi'} tone={routeQuote.source === 'google_routes' ? 'green' : 'brand'} /></View>
-                <Text selectable style={styles.routeValue}>{routeDistanceKm.toFixed(1)} km · {durationText(routeQuote.durationSeconds)}</Text>
+                <View style={styles.routeHeader}><Text style={styles.routeTitle}>Rute vendor → proyek</Text><StatusChip label={routeQuote?.source === 'google_routes' ? 'Google Routes' : 'Estimasi'} tone={routeQuote?.source === 'google_routes' ? 'green' : 'brand'} /></View>
+                <Text selectable style={styles.routeValue}>{routeDistanceKm.toFixed(1)} km · {durationText(routeQuote?.durationSeconds ?? 0)}</Text>
                 {routeQuote.warning ? <Text selectable style={styles.routeWarning}>{routeQuote.warning}</Text> : null}
               </View>
             ) : null}
@@ -547,7 +547,7 @@ export default function CustomerOrder() {
               <SummaryRow label="Material" value={`${material.name} · ${quantity} ${material.unit}`} />
               <SummaryRow label="Vendor" value={material.vendor} />
               <SummaryRow label="Alamat" value={address} />
-              <SummaryRow label="Rute" value={`${routeDistanceKm.toFixed(1)} km · ${durationText(routeQuote.durationSeconds)}`} />
+              <SummaryRow label="Rute" value={`${routeDistanceKm.toFixed(1)} km · ${durationText(routeQuote?.durationSeconds ?? 0)}`} />
               <SummaryRow label="Armada" value={`${selectedFleet.jenis_armada} · ${selectedFleet.no_polisi}`} />
               <SummaryRow label="Driver" value={selectedFleet.driver_id ? 'Sudah ditugaskan' : 'Akan ditugaskan vendor'} />
             </View>

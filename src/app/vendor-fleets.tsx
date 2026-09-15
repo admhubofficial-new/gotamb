@@ -44,7 +44,7 @@ export default function VendorFleets() {
   const [showAdd, setShowAdd] = useState(false);
   const [vehiclePreset, setVehiclePreset] = useState(1);
   const [plate, setPlate] = useState('');
-  const [capacity, setCapacity] = useState(vehiclePresets[1].capacity);
+  const [capacity, setCapacity] = useState<string>(vehiclePresets[1].capacity);
   const [saving, setSaving] = useState(false);
 
   const driverMap = useMemo(() => new Map(drivers.map((driver) => [driver.id, driver])), [drivers]);
