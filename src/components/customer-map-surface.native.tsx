@@ -1,7 +1,7 @@
 import { Image } from 'expo-image';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
-import MapView, { Marker, type Region } from 'react-native-maps';
+import MapView, { Circle, Marker, type Region } from 'react-native-maps';
 
 import { palette } from '@/components/gotamb-ui';
 
@@ -27,11 +27,25 @@ export type CustomerMapVendor = {
   items: CustomerMapItem[];
 };
 
-type Coordinate = { latitude: number; longitude: number };
+export type CustomerCoordinate = {
+  latitude: number;
+  longitude: number;
+};
+
+export type CustomerMapSurfaceProps = {
+  vendors: CustomerMapVendor[];
+  selectedVendorId: string | null;
+  loading: boolean;
+  onSelectVendor: (vendorId: string) => void;
+  showUserLocation?: boolean;
+  focusUserRequest?: number;
+  radiusKm?: number;
+  onUserLocationChange?: (coordinate: CustomerCoordinate) => void;
+};
 
 type LocatedVendor = {
   vendor: CustomerMapVendor;
-  coordinate: Coordinate;
+  coordinate: CustomerCoordinate;
 };
 
 const SUMEDANG_REGION: Region = {
@@ -41,7 +55,7 @@ const SUMEDANG_REGION: Region = {
   longitudeDelta: 0.42,
 };
 
-function getVendorCoordinate(vendor: CustomerMapVendor): Coordinate | null {
+function getVendorCoordinate(vendor: CustomerMapVendor): CustomerCoordinate | null {
   if (vendor.lokasi_lat !== null && vendor.lokasi_lng !== null) {
     return { latitude: vendor.lokasi_lat, longitude: vendor.lokasi_lng };
   }
@@ -82,14 +96,12 @@ function getRegion(located: LocatedVendor[]): Region {
   const maxLat = Math.max(...lats);
   const minLng = Math.min(...lngs);
   const maxLng = Math.max(...lngs);
-  const latDelta = Math.max((maxLat - minLat) * 1.55, 0.08);
-  const lngDelta = Math.max((maxLng - minLng) * 1.55, 0.08);
 
   return {
     latitude: (maxLat + minLat) / 2,
     longitude: (maxLng + minLng) / 2,
-    latitudeDelta: latDelta,
-    longitudeDelta: lngDelta,
+    latitudeDelta: Math.max((maxLat - minLat) * 1.55, 0.08),
+    longitudeDelta: Math.max((maxLng - minLng) * 1.55, 0.08),
   };
 }
 
@@ -98,14 +110,14 @@ export function CustomerMapSurface({
   selectedVendorId,
   loading,
   onSelectVendor,
-}: {
-  vendors: CustomerMapVendor[];
-  selectedVendorId: string | null;
-  loading: boolean;
-  onSelectVendor: (vendorId: string) => void;
-}) {
+  showUserLocation = false,
+  focusUserRequest = 0,
+  radiusKm = 0,
+  onUserLocationChange,
+}: CustomerMapSurfaceProps) {
   const mapRef = useRef<MapView | null>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [userCoordinate, setUserCoordinate] = useState<CustomerCoordinate | null>(null);
 
   const located = useMemo<LocatedVendor[]>(
     () => vendors
@@ -118,18 +130,20 @@ export function CustomerMapSurface({
   const missingLocationCount = vendors.length - located.length;
 
   useEffect(() => {
-    if (!mapReady || !mapRef.current || !located.length) return;
+    if (!mapReady || !mapRef.current || !located.length || selectedVendorId) return;
 
-    const coordinates = located.map((entry) => entry.coordinate);
     const timer = setTimeout(() => {
-      mapRef.current?.fitToCoordinates(coordinates, {
-        animated: true,
-        edgePadding: { top: 190, right: 64, bottom: 250, left: 64 },
-      });
+      mapRef.current?.fitToCoordinates(
+        located.map((entry) => entry.coordinate),
+        {
+          animated: true,
+          edgePadding: { top: 190, right: 64, bottom: 260, left: 64 },
+        },
+      );
     }, 180);
 
     return () => clearTimeout(timer);
-  }, [located, mapReady]);
+  }, [located, mapReady, selectedVendorId]);
 
   useEffect(() => {
     if (!mapReady || !mapRef.current || !selectedVendorId) return;
@@ -146,6 +160,19 @@ export function CustomerMapSurface({
     );
   }, [located, mapReady, selectedVendorId]);
 
+  useEffect(() => {
+    if (!focusUserRequest || !mapReady || !mapRef.current || !userCoordinate) return;
+    const delta = radiusKm > 0 ? Math.max(radiusKm / 48, 0.04) : 0.06;
+    mapRef.current.animateToRegion(
+      {
+        ...userCoordinate,
+        latitudeDelta: delta,
+        longitudeDelta: delta,
+      },
+      350,
+    );
+  }, [focusUserRequest, mapReady, radiusKm, userCoordinate]);
+
   return (
     <View style={styles.container}>
       <MapView
@@ -159,7 +186,26 @@ export function CustomerMapSurface({
         showsCompass={false}
         showsBuildings
         showsPointsOfInterests={false}
-        mapPadding={{ top: 150, right: 0, bottom: 180, left: 0 }}>
+        showsUserLocation={showUserLocation}
+        showsMyLocationButton={false}
+        onUserLocationChange={(event) => {
+          const coordinate = event.nativeEvent.coordinate;
+          if (!coordinate) return;
+          const next = { latitude: coordinate.latitude, longitude: coordinate.longitude };
+          setUserCoordinate(next);
+          onUserLocationChange?.(next);
+        }}
+        mapPadding={{ top: 150, right: 0, bottom: 190, left: 0 }}>
+        {userCoordinate && radiusKm > 0 ? (
+          <Circle
+            center={userCoordinate}
+            radius={radiusKm * 1000}
+            strokeWidth={2}
+            strokeColor="rgba(180,83,9,0.72)"
+            fillColor="rgba(245,158,11,0.08)"
+          />
+        ) : null}
+
         {located.map(({ vendor, coordinate }) => {
           const selected = vendor.id === selectedVendorId;
           return (
@@ -193,7 +239,9 @@ export function CustomerMapSurface({
 
       <View pointerEvents="none" style={styles.mapBadge}>
         <View style={styles.mapBadgeDot} />
-        <Text style={styles.mapBadgeText}>Vendor terverifikasi</Text>
+        <Text style={styles.mapBadgeText}>
+          {radiusKm > 0 ? `Vendor dalam radius ${radiusKm} km` : 'Vendor terverifikasi'}
+        </Text>
       </View>
 
       {loading ? (
@@ -207,7 +255,7 @@ export function CustomerMapSurface({
         <View pointerEvents="none" style={styles.emptyCard}>
           <View style={styles.emptyIcon}><Text style={styles.emptyIconText}>⌖</Text></View>
           <Text style={styles.emptyTitle}>Belum ada titik vendor</Text>
-          <Text style={styles.emptyText}>Vendor akan muncul setelah lokasi perusahaan atau lokasi material tersedia.</Text>
+          <Text style={styles.emptyText}>Coba perluas radius atau ubah pencarian material.</Text>
         </View>
       ) : null}
 
