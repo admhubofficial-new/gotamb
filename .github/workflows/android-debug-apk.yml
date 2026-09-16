@@ -59,4 +59,4 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-# rebuild requested 2026-09-15
+# rebuild requested 2026-09-16 after repository/Supabase sync
