@@ -13,6 +13,7 @@ export default function RootLayout() {
       <Stack.Screen name="register" />
       <Stack.Screen name="vendor-home" />
       <Stack.Screen name="vendor-items" />
+      <Stack.Screen name="vendor-fleets" />
       <Stack.Screen name="customer-home" />
       <Stack.Screen name="customer-order" />
       <Stack.Screen name="customer-orders" />
